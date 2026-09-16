@@ -1,0 +1,30 @@
+--- upstream/camera_csi.yaml	2026-08-12 10:35:25
++++ patched/camera_csi.yaml	2026-08-12 10:36:00
+@@ -82,6 +82,27 @@
+     calibration_file_right: acamst_right.yaml
+     camera_name_right: ar0234_right_2560x720
+ 
++  # LOCAL FIX (jetson9, 2026-08-11): native full-resolution profile.
++  # The UC-512 Camarray HAT delivers ONE side-by-side RAW10 GRBG frame of
++  # 3840x1200 at /dev/video0 (v4l2-ctl --list-formats-ext confirms a single
++  # mode). The 2560x720 numbers in the ar0234 profile above are a downscale,
++  # so per-eye is 1920x1200 native, not 1280x720. Stereo calibration and the
++  # depth pipeline must use the native geometry or the intrinsics are scaled
++  # against a resolution the sensor never actually emits.
++  ar0234_fullres:
++    driver: v4l2
++    device: /dev/video0
++    capture_width: 3840
++    capture_height: 1200
++    framerate: 30
++    image_width: 1920
++    image_height: 1200
++    encoding: rgb8
++    calibration_file: acamst_left.yaml
++    camera_name: ar0234_left_3840x1200
++    calibration_file_right: acamst_right.yaml
++    camera_name_right: ar0234_right_3840x1200
++
+   # Replay bench (NARSIL_VISION_REPLAY=1): the camera node is skipped and a bag/
+   # image_publisher supplies /left/image_raw; only image_width/height are read.
+   # Field bags are 1920x1200/eye (3840x1200 SBS).

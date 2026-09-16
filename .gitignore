@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# RaisenInternship is its own repository (milar111/RaisenInternship) -- a clone
+# of it lives here for reference, it is not part of this tree.
+RaisenInternship/
+
+# macOS
+.DS_Store
+
+# Runtime output: recordings, grids and previews written by the pipeline
+pipeline/out/
+mapping/out/
+*.log

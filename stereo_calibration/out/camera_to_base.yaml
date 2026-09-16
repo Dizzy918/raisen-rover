@@ -1,0 +1,151 @@
+# Camera pose relative to the floor -- the camera-to-ROVER calibration.
+#
+# Measured 2026-08-17 on rover-01, jetson9. Stereo calibration (acamst_*.yaml)
+# gives camera-to-camera; this gives camera-to-world-ish, and without it anything
+# projecting depth into a rover frame is guessing. Before this, the height was a
+# tape reading and the pitch was picked by eye from "a little bit upwards".
+#
+# TWO INDEPENDENT METHODS, which is the only reason to trust it:
+#
+#                        plane fit      checkerboard     tape
+#   camera height        0.1687 m       (scale unknown)  0.165 m
+#   pitch, nose up       +2.49 deg      +2.95 deg        --
+#   roll                 +0.66 deg      +0.58 deg        --
+#   quality              85% inliers    0.35 px reproj   --
+#                        2.0 mm rms
+#
+#   A  RANSAC plane fit on near-field stereo, 0.30-1.50 m, with candidate normals
+#      constrained to within 25 deg of vertical. The constraint is essential:
+#      unconstrained, the same fit returned a cardboard box front 45 cm away as
+#      "floor" with a 1.4 mm rms and a pitch of -87 deg. A tight rms proves the
+#      points are coplanar, not that they are the floor.
+#
+#   B  solvePnP on a checkerboard lying flat on the floor. Its square size was
+#      unknown, which does not matter for ORIENTATION: solvePnP's rotation is
+#      scale invariant, so pitch and roll are valid from an uncalibrated board
+#      while only the translation scales. The square size then back-solves to
+#      23.8 mm from the tape height. Grid found by search: 7x6 inner corners.
+#
+#      Board search is ambiguous by construction -- every sub-block of a
+#      checkerboard is itself a valid checkerboard, and a naive search "found"
+#      (3,3), (4,3), (5,3), (6,3), (7,3) and (6,6) in the same image. Reprojection
+#      error is what separates a real match from a sub-block: the (7,6) fit lands
+#      at 0.35 px, the spurious (3,3) gave roll -20.7 deg.
+#
+# WHICH HEIGHT TO USE. 0.1687 m, from the plane fit, because that is the distance
+# from the OPTICAL CENTRE to the floor, which is what projection maths needs. The
+# 4 mm disagreement with the tape is most likely datum -- a tape reaches the
+# housing, not the optical centre, which sits a few mm inside the lens. 4 mm is
+# small against the 60 mm band the occupancy grid uses to classify floor.
+#
+# WHY THE PITCH MATTERS. At 4 m, 1 deg of pitch error is 70 mm of height error --
+# comparable to that same 60 mm floor band. Pitch was previously a guess with
+# maybe +/-1.25 deg of confidence, i.e. up to 87 mm. Two methods agreeing to
+# 0.46 deg cuts that to about 35 mm, which finally sits inside the band.
+#
+# STILL UNKNOWN: the camera's fore/aft and lateral offset from the rover's own
+# origin. This file locates the camera against the FLOOR, not against the
+# chassis. Height, pitch and roll are enough for depth projection and for
+# heading; a ruler from the wheel axis would finish the job.
+
+frame: left_cam_optical
+reference: floor
+
+height_m: 0.1687
+pitch_deg: 2.72        # plane fit weighted highest -- see PITCH ESTIMATES below
+roll_deg: 0.62         # mean of 0.66 and 0.58
+uncertainty_deg: 0.6   # spread across methods, not a formal sigma
+
+# Upward floor normal in the camera optical frame (X right, Y down, Z forward),
+# from the plane fit. pitch = atan2(n_z, -n_y), roll = atan2(n_x, -n_y).
+floor_normal: [0.0115, -0.9990, 0.0435]
+
+measured_on: 2026-08-17
+method: stereo_calibration/measure_floor.py
+board_grid: [9, 6]         # NOT (7,6) -- see below
+board_square_mm: 25.65     # ruler measured, no longer inferred
+
+# PITCH ESTIMATES, three routes, listed with what each assumes:
+#
+#   +2.49 deg  floor plane fit       assumes only that the floor is flat
+#   +2.95 deg  board flat on floor   orientation only; its distance is unusable
+#   +3.21 deg  board against wall    assumes the WALL IS PLUMB
+#   +3.66 deg  same, next capture    same assumption, 0.45 deg later
+#
+# The plane fit is weighted highest because it assumes the least. The wall method
+# repeated itself 0.45 deg apart on an unchanged setup, which is its noise floor,
+# and it inherits any lean in the wall on top of that.
+#
+# THE GRID WAS WRONG AT FIRST, worth recording as a trap. The board on the floor
+# detected as (7,6) at 0.35 px reprojection and that was accepted. Standing
+# upright and fully visible it detects as (9,6) at 0.06 px: the floor detection
+# had locked onto a SUB-BLOCK. Every sub-block of a checkerboard is itself a
+# valid checkerboard, and a sub-block reprojects just as beautifully as the whole
+# thing, so low reprojection error does not confirm the grid.
+#
+# Consequences split cleanly: a sub-block is coplanar with the full board, so
+# ORIENTATION from it stayed valid, while its implied SCALE was wrong. That is
+# also why the floor board's height (17.8 cm with the true square size) is
+# discarded in favour of the plane fit's 16.87 cm -- a target at 8 deg grazing is
+# badly conditioned in distance even when its orientation is fine.
+
+# DEPTH SCALE VALIDATED 2026-08-17 against board geometry at 1 m:
+#
+#   board pose, absolute      0.9897 m
+#   stereo, central patch     0.9900 m    +0.3 mm   (+0.03%)
+#   stereo, at board corners  0.9796 m   -10.1 mm
+#   tape                      1.0000 m   +10.3 mm
+#
+# So fx*baseline = 87.120 is confirmed to 0.03% at 1 m, and the tape's 10 mm is
+# datum and handheld technique rather than a camera error.
+#
+# DO NOT SAMPLE DISPARITY AT CHECKERBOARD CORNERS. The corner figure is 0.9 px of
+# disparity low, biased because a periodic black-and-white pattern is near the
+# worst case for a block matcher -- the window straddles symmetric edges. Board
+# corners are the right reference for POSE and the wrong pixels for DISPARITY.
+
+# DEPTH vs RANGE, measured 2026-08-17. Board = solvePnP on 25.65 mm squares.
+#
+#   range   tape     board      stereo    stereo-board   tape-board
+#    1 m    1.000    0.9897     0.9900     +0.3 mm       +10.3 mm
+#    2 m    2.000    1.9770     1.9800     +3.0 mm       +23.0 mm
+#    4 m    4.000    --         3.9155     --            +84.5 mm
+#
+# At 4 m the board is undetectable: a 25.65 mm square subtends ~4 px. Upscaling
+# does not help, since it adds no information.
+#
+# OPEN QUESTION -- A POSSIBLE 1% SCALE ERROR.
+#
+# The tape reads long by roughly 1% PROPORTIONALLY (10.3 mm at 1 m, 23.0 at 2 m).
+# A datum offset would be constant, so this is a scale effect. Two candidates
+# remain and the data so far cannot separate them:
+#
+#   fx low by ~1%        would make every camera distance ~1% short
+#   tape systematic      sag reads long at 4 m, but not at 1 m
+#
+# A SLANT MEASUREMENT IS RULED OUT. In the 4 m frame the board centre sits 19 px
+# below the optical axis, i.e. about 6 cm off the camera's height. Over 4 m that
+# makes a slant line 0.5 mm longer than the perpendicular, and under 2 mm at 1 m.
+#
+# WHY THE 0.03% AGREEMENT DOES NOT SETTLE IT. Stereo depth is fx*baseline/disp and
+# PnP distance is proportional to fx*square_size, so the RATIO of the two cancels
+# fx completely. Their agreement validates the BASELINE against a ruler-measured
+# square, and is entirely blind to absolute scale: a 1% fx error moves both by 1%
+# and leaves the comparison unchanged.
+#
+# THE TEST THAT WOULD SETTLE IT is differential, because a difference cancels the
+# datum: capture the board at ~1 m, slide it straight back by exactly 1.000 m
+# measured ALONG THE FLOOR, capture again, compare the PnP separation to 1.000 m.
+#
+# DECIDED 2026-08-17 NOT TO RUN IT. The possible 1% is accepted as a known
+# limitation rather than resolved. Do not re-propose this test; it was considered
+# and declined. Anyone who later needs absolute scale better than 1% -- surveying,
+# or merging maps from two rovers against a shared external frame -- should start
+# by running it, since everything downstream inherits this.
+#
+# UNTIL THEN, what is safe to claim:
+#   internally consistent to 0.03% at 1 m and 0.15% at 2 m
+#   possibly ~1% short in absolute terms, unresolved
+#   at 4 m, per-pixel depth quantisation is 168 mm per whole disparity px and
+#   10.5 mm per 1/16 step, so the far field is good to roughly 0.1-0.2 m anyway,
+#   and a 1% scale error would sit inside that

@@ -1,0 +1,1 @@
+streaming exp=8000. goal 20, 420s. HOLD STILL ~1.5s at each pose.

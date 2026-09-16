@@ -1,0 +1,59 @@
+# AR0234 stereo calibration — produced by scripts/calibrate-ar0234-stereo.py
+# Source bag: /workspaces/isaac_ros-dev/runs/20260611_150622_ar0234_calibration_record_rig2-camprofile-1/bag
+# Generated: 2026-06-11 12:35:28 UTC
+# K, D from cv2.stereoCalibrateExtended; R, P from cv2.stereoRectify (CALIB_ZERO_DISPARITY, alpha=0).
+image_width: 1280
+image_height: 720
+camera_name: ar0234_left_2560x720
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 1114.9740271780545
+  - 0.0
+  - 621.5438125534739
+  - 0.0
+  - 1116.9830108725243
+  - 363.93418660014015
+  - 0.0
+  - 0.0
+  - 1.0
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data:
+  - 0.011455754904810891
+  - -0.006098697927592412
+  - 5.394430807727437e-05
+  - -0.002137630568573012
+  - -0.06070199272856766
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 0.9998901240334633
+  - 0.0014891909493998765
+  - -0.01474863284042264
+  - -0.0016025833749693753
+  - 0.9999692280090378
+  - -0.007679502688018157
+  - 0.014736742749727279
+  - 0.007702294809031379
+  - 0.9998617419762609
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+  - 1135.3913643381993
+  - 0.0
+  - 629.9539489746094
+  - 0.0
+  - 0.0
+  - 1135.3913643381993
+  - 370.852237701416
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+  - 0.0

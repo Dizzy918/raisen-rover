@@ -1,0 +1,141 @@
+THE CAMERA DISAPPEARS AFTER A REBOOT
+jetson9, 2026-08-17
+
+
+SYMPTOM
+
+  /dev/video0 does not exist. Not busy -- absent.
+  v4l2-ctl says "Cannot open device /dev/video0, exiting."
+  The container publisher dies, cuVSLAM waits forever, and a fusion run logs IMU
+  against no vSLAM at all.
+
+
+DIAGNOSIS IN THREE COMMANDS
+
+  ls /dev/video*                                    absent?
+  ls /proc/device-tree/ | grep tegra-camera-platform    node present?
+  lsmod | grep arducam_csi2                         loaded, and what refcount?
+
+The refcount is the tell. arducam_csi2 with refcount 0 means the driver is in
+memory with NOTHING BOUND: there is no camera node in the device tree, so it never
+even attempts a probe. Working looks like refcount 1.
+
+AND THIS IS WHY IT IS NOT A CABLE. A loose CSI ribbon gives a node in the device
+tree and a FAILED probe, which is noisy in dmesg. A missing node gives silence.
+If dmesg says nothing whatsoever about the camera, stop looking at the hardware.
+
+
+CAUSE
+
+The device tree is read only at boot, and the camera node arrives via the boot
+config. When no FDT line selects a camera-containing tree, UEFI falls back to the
+flashed kernel-dtb partition -- and on this machine BOTH slots contain trees with
+zero arducam references. So the camera cannot appear.
+
+The trigger was an unrelated `apt install nmap`. That made dpkg try to finish
+configuring arducam-nvidia-l4t-kernel, which is half-configured (state iF). Its
+postinst does:
+
+    cp /boot/arducam/extlinux.conf /boot/extlinux/extlinux.conf
+
+overwriting the live boot config with its own template, keeping only the kernel
+command line. It then runs
+
+    /opt/arducam/jetson-io/config-by-hardware.py -n 2="Camera ARDUCAM Dual"
+
+which aborts with "Multiple DTBs found for ... Orin Nano ... Super!" because
+/boot/dtb/pio/ holds five trees matching this board and jetson-io refuses to
+guess. So the config was stripped and never rebuilt. The running system kept
+working until the next reboot, because the tree was already in memory.
+
+The postinst has a second, latent bug: it moves modules into
+/lib/modules/5.15.148-tegra/, hardcoded, while the kernel it ships is
+5.15.185-tegra. That mv fails silently -- there is no set -e -- so it is not the
+cause of the failed exit, only a trap for later.
+
+
+FIX
+
+Pin the device tree explicitly in /boot/extlinux/extlinux.conf, after INITRD:
+
+    FDT /boot/narsil-dt/merged-3dcd6064.dtb
+
+Chosen on evidence: newest camera-containing tree on disk, decompiles cleanly,
+declares arducam_a@0c, arducam_c@0c, cam_i2cmux and tegra-camera-platform, and
+compared node-by-node against the running tree it adds exactly those while
+dropping only memory carveouts (fsi, pva, vpr, ramoops), optee, ftpm and odm-data
+-- all injected by UEFI at boot and absent from every source DTB by nature. It
+costs the drone project nothing: dw3000/uwb appears zero times in both that tree
+and the running one, so UWB is not configured through the device tree here.
+
+PUT THE SAME LINE IN /boot/arducam/extlinux.conf. That is the template the
+postinst copies over the live config, and the package is STILL half-configured, so
+its postinst runs again on the next apt operation on this machine. Without this,
+the fix gets silently undone and the camera vanishes at the following reboot.
+
+Also written, so a device-match failure is never silent:
+
+    /etc/modules-load.d/arducam.conf   containing   arducam_csi2
+
+Verified after reboot: /dev/video0 present, tegra-camera-platform in the tree,
+arducam_csi2 refcount 1, real sharp images, and check_rectification.py back at its
+known-good baseline (rectified median dy 0.000 px, 97% within 2 px, unrectified
+-6.000 px).
+
+
+WHAT IS STILL NOT EXPLAINED
+
+The camera worked at 10:18 the same morning, and the evidence says it should not
+have: both DTB partitions lack arducam, the boot config had no FDT or OVERLAYS
+line and was byte-identical to its 2026-08-10 backup, and there is no runtime
+overlay mechanism -- configfs device-tree support is not even compiled in. Some
+implicit path was supplying the tree and it was never identified.
+
+That is exactly why the fix pins the tree rather than restoring the previous
+OVERLAYS-based setup. An explicit FDT does not depend on a mechanism nobody
+understands.
+
+
+STILL OUTSTANDING
+
+  apt is broken on this machine. Every operation trips over the half-configured
+  package. Fixing it properly means clearing the duplicate trees in /boot/dtb/pio/
+  (five files dated Jul 7, someone else's work) and re-running the package config
+  -- but jetson-io would then rebuild from the STOCK base and could drop whatever
+  is custom in the narsil-dt merged trees. Worth doing with whoever owns those.
+
+  The first capture after a boot can come back featureless. check_rectification.py
+  reported 0 matches immediately after reboot and passed normally a minute later,
+  so give the sensor a moment before trusting a cold first frame.
+
+
+IT CAME BACK, 2026-08-18 AFTERNOON
+
+/dev/video0 vanished again after jetson9 rebooted. Symptoms differ slightly from
+the first occurrence and are worth writing down, because "the camera is gone" has
+now had two distinct signatures.
+
+  ls /dev/video*                 no such file -- no node at all, not a busy node
+  lsmod | grep arducam           arducam_csi2 IS loaded, 28672, used by tegra_camera
+  config-by-hardware.py -l       crashes in fio.is_rw(self.bootdir), i.e. it cannot
+                                 write /boot, so it needs sudo to say anything
+  uptime                         4 minutes
+
+THE MODULE LOADS AND STILL PROBES NOTHING. That is the informative part. The driver
+is present and bound to tegra_camera, so this is not a missing module or a
+blacklist; the sensor simply is not found on the CSI bus, which points at the
+device-tree overlay not being applied for this boot rather than at the driver.
+
+jetson9 also rebooted at least twice today without being asked to. A machine that
+restarts mid-test is its own problem and probably the reason the overlay state
+keeps changing.
+
+WHAT IT COST. Eight drive runs were executed against a fusion session whose
+publisher had already failed with "cannot open /dev/video0". fuse_heading wrote a
+header and zero rows, and the run reported "odometry frames 0" in a summary nobody
+reads until afterwards. imu/run_fusion.sh now checks the publisher is alive and
+grep-checks its log before letting the mission proceed, and exits non-zero if not.
+
+The lesson is not about the camera. It is that a pipeline which degrades to
+silence is worse than one that crashes, and every stage that can lose its input
+should say so at the point of failure.

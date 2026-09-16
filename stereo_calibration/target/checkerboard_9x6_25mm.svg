@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="297.0mm" height="210.0mm" viewBox="0 0 297.0 210.0">
+<rect width="100%" height="100%" fill="#fff"/>
+<g shape-rendering="crispEdges">
+<rect x="23.5000" y="12.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="73.5000" y="12.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="123.5000" y="12.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="173.5000" y="12.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="223.5000" y="12.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="48.5000" y="37.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="98.5000" y="37.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="148.5000" y="37.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="198.5000" y="37.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="248.5000" y="37.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="23.5000" y="62.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="73.5000" y="62.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="123.5000" y="62.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="173.5000" y="62.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="223.5000" y="62.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="48.5000" y="87.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="98.5000" y="87.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="148.5000" y="87.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="198.5000" y="87.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="248.5000" y="87.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="23.5000" y="112.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="73.5000" y="112.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="123.5000" y="112.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="173.5000" y="112.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="223.5000" y="112.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="48.5000" y="137.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="98.5000" y="137.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="148.5000" y="137.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="198.5000" y="137.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="248.5000" y="137.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="23.5000" y="162.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="73.5000" y="162.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="123.5000" y="162.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="173.5000" y="162.0000" width="25.0" height="25.0" fill="#000"/>
+<rect x="223.5000" y="162.0000" width="25.0" height="25.0" fill="#000"/>
+</g>
+<g stroke="#000" stroke-width="0.3">
+<line x1="98.5000" y1="199.0000" x2="198.5000" y2="199.0000"/>
+<line x1="98.5000" y1="196.5000" x2="98.5000" y2="201.5000"/>
+<line x1="198.5000" y1="196.5000" x2="198.5000" y2="201.5000"/>
+</g>
+<text x="148.5000" y="195.0000" font-family="Helvetica,Arial" font-size="4" text-anchor="middle" fill="#000">100 mm &#8212; measure after printing; must be exact</text>
+<text x="148.5000" y="206.0000" font-family="Helvetica,Arial" font-size="3.2" text-anchor="middle" fill="#000">9x6 inner corners &#183; 25 mm squares &#183; print at 100% / "actual size", NO fit-to-page</text>
+</svg>

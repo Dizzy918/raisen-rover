@@ -1,0 +1,14 @@
+[Unit]
+Description=Recover the Arducam stereo camera after a lost probe
+Documentation=file:///home/narsil/stereo/README.md
+After=multi-user.target
+ConditionPathExists=/usr/local/sbin/arducam-recover
+
+[Service]
+Type=oneshot
+# --boot waits past the driver's single probe attempt (~7.8 s) before judging.
+ExecStart=/usr/local/sbin/arducam-recover --boot
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+streaming, exposure=8000. goal 20 pairs, 300s. Move the board through poses.
+KEPT  1/20 cell=TC fill=24% (0s) cells: TC
+KEPT  2/20 cell=TC fill=24% (4s) cells: TC
+KEPT  3/20 cell=MC fill=23% (6s) cells: MC TC
+KEPT  4/20 cell=TR fill=29% (9s) cells: MC TC TR
+KEPT  5/20 cell=TC fill=22% (9s) cells: MC TC TR
+KEPT  6/20 cell=TC fill=21% (12s) cells: MC TC TR
+KEPT  7/20 cell=TC fill=21% (14s) cells: MC TC TR
+KEPT  8/20 cell=TC fill=27% (20s) cells: MC TC TR
+KEPT  9/20 cell=MR fill=28% (20s) cells: MC MR TC TR
+KEPT 10/20 cell=MR fill=30% (20s) cells: MC MR TC TR
+KEPT 11/20 cell=MC fill=33% (22s) cells: MC MR TC TR
+KEPT 12/20 cell=MC fill=31% (23s) cells: MC MR TC TR
+KEPT 13/20 cell=MC fill=18% (36s) cells: MC MR TC TR
+KEPT 14/20 cell=MC fill=18% (37s) cells: MC MR TC TR
+KEPT 15/20 cell=TC fill=13% (40s) cells: MC MR TC TR
+KEPT 16/20 cell=MC fill=12% (42s) cells: MC MR TC TR
+KEPT 17/20 cell=MR fill=13% (52s) cells: MC MR TC TR
+KEPT 18/20 cell=MC fill=11% (56s) cells: MC MR TC TR
+KEPT 19/20 cell=MC fill=15% (56s) cells: MC MR TC TR
+stop requested.
+DONE: kept 19/20 in 132s (reads=768 checks=383 both-eyes-hits=59). cells: MC MR TC TR
+vision restarted.

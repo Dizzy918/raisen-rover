@@ -1,0 +1,10 @@
+// Restore the Arducam-patched tegra-camera.ko after any package operation.
+//
+// arducam-nvidia-l4t-kernel's postinst moves it to a hardcoded
+// /lib/modules/5.15.148-tegra/ while these boxes run 5.15.185-tegra, and has no
+// set -e, so dpkg reports success and leaves the STOCK module in place. The
+// camera then enumerates perfectly and never delivers a frame. See
+// jetson/stereo/README.md for the full account.
+//
+// --module-only: repair the file, never cycle the driver mid-dpkg.
+DPkg::Post-Invoke { "if [ -x /usr/local/sbin/arducam-recover ]; then /usr/local/sbin/arducam-recover --module-only || true; fi"; };

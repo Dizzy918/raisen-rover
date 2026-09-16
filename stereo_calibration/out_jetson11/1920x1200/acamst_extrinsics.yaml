@@ -1,0 +1,50 @@
+# Stereo calibration for the jetson11 AR0234 pair, derived from the bench
+# calibration of 2026-08-19 13:44:58 UTC (17 views, RMS 0.24627 px).
+#
+# NOT a straight copy of the bench files. Three corrections were composed:
+#   1. un-crop  1280x720 -> 1920x1200. The bench ran in the sensor's 2560x720
+#      mode, which is a CENTRED CROP at native pixel pitch, measured on the
+#      hardware at offset x=+320 y=+240 (peak correlation 0.98/0.99). fx,fy
+#      therefore carry over unchanged; only the principal point moves.
+#   2. un-invert  the cameras are mounted upside down, so the bench images were
+#      inverted. cx -> (W-1)-cx, cy -> (H-1)-cy; k1,k2,k3 unchanged (even in r);
+#      p1,p2 negated (odd under x,y -> -x,-y).
+#   3. swap  rotating both eyes flips T_x positive, which means the eye the
+#      bench called "left" is the RIGHT eye once upright. Left and right are
+#      therefore exchanged here. Doing 2 without 3 gives a plausible RMS and
+#      mirrored geometry.
+# R and P are recomputed with cv2.stereoRectify (CALIB_ZERO_DISPARITY, alpha=0)
+# from the corrected intrinsics; they cannot be patched in place.
+#
+# Consumers must feed images rotated 180 and left/right swapped, which is what
+# CAMERA.md documents and what smart_grab7.py already does.
+parent_frame: stereo_left_optical
+child_frame: stereo_right_optical
+rotation:
+  rows: 3
+  cols: 3
+  data:
+  - 0.9999760840044237
+  - 9.164693041751998e-05
+  - -0.006915419005221124
+  - 1.7168354476877358e-05
+  - 0.9998762211690797
+  - 0.0157334689718859
+  - 0.006916004946877426
+  - -0.015733211416676406
+  - 0.9998523065603705
+translation:
+  rows: 3
+  cols: 1
+  data:
+  - -0.14838159347179075
+  - -0.0008624831002594365
+  - -0.003639472942878979
+baseline_mm: 148.4287
+rms_px: 0.24627
+view_count: 17
+checkerboard:
+  cols: 9
+  rows: 6
+  square_m: 0.0256
+derived_from: bench 1280x720 inverted, 2026-08-19 13:44:58 UTC

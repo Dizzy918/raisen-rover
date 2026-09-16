@@ -1,0 +1,255 @@
+cuVSLAM OVER-REPORTS ROTATION BY ~12x
+2026-08-17, rover-01 / jetson9, UNRESOLVED
+
+
+WHAT WAS MEASURED
+
+Closed-loop pivot commanded at 0.30, logged at 31 Hz with imu/run_fusion.sh.
+Windows are delimited by markers in the CSV, so these are the same time spans:
+
+  window                    IMU        vSLAM      ratio
+  pivot, 21.2 s          +50.8 deg   +607.8 deg   12.0
+  pivot, 21.2 s (2nd)     +0.6 deg   -362.9 deg     --
+  stationary, 20 s         ~0 deg      0.0 deg     --
+
+vSLAM's 607.8 deg over 21.2 s is 28.7 deg/s, which is suspiciously exactly the
+pivot rate measured independently for a 0.30 command (29 deg/s). That coincidence
+is what made this worth chasing rather than dismissing.
+
+
+IT IS NOT NOISE, AND IT IS NOT AN ALIASING ARTEFACT
+
+vSLAM's output is SMOOTH. Per-frame yaw deltas over the window: median 0.92 deg,
+p99 2.42, max 3.46, and ZERO frames above 5 deg. No jumps, no tracking resets.
+Whatever it is doing, it is doing it consistently.
+
+The IMU is not missing revolutions either, which was the obvious counter-theory:
+
+  yaw stayed within -172.2 to -89.9 deg, a range of 82.3 deg
+  never wrapped past +/-180
+  308 distinct readings in 21.2 s = 14.5 Hz effective
+  largest single update 7.57 deg, ZERO updates above 90 deg
+
+So there is no gap big enough to hide a full turn. The rover did not spin 1.7
+revolutions. And in the second window the rover barely moved at all (IMU +0.6 deg)
+while vSLAM accumulated -362.9 deg, which no scale factor explains -- that is
+rotation reported for a rover that was sitting still.
+
+
+WHAT THIS DOES NOT AFFECT
+
+The stationary verification still stands: 3571 poses over 120 s at 29.77 Hz, zero
+gaps, 4.5 ms latency with no drift, identical stereo timestamps, quaternion norm
+1.000000. At rest the pipeline is sound and the pose is stable. The defect appears
+only under rotation.
+
+Translation looks plausible throughout: 0.107 m of drift during a 21 s pivot, and
+per-frame steps with a median of 1.7 mm.
+
+
+CANDIDATE CAUSES, none yet confirmed
+
+  THE TF CHANGE. base_link -> left_cam was switched from identity to the measured
+  height and tilt on the same day. cuVSLAM reads its rig geometry from TF, so a
+  bad transform is the first thing to rule out. live_vslam.py has --legacy-tf,
+  which restores the old identity transform, so this is a clean A/B: run the same
+  pivot both ways and compare. THIS IS THE NEXT STEP.
+
+  SCENE. Pure rotation is the hardest case for stereo VO -- features sweep across
+  the frame rather than parallax -- and this room is a backlit office with a
+  polished floor that mirrors it. Reflected features move differently from real
+  ones. But a 12x over-report is extreme for that, and the smoothness argues
+  against it.
+
+  YAW EXTRACTION. yaw = atan2(2(wz+xy), 1-2(y^2+z^2)) is only meaningful if the
+  pose frame has Z up, which the new TF should give. Worth checking against the
+  full quaternion rather than trusting the scalar.
+
+
+CONSEQUENCE FOR THE FUSION FILTER
+
+fuse_heading.py takes its rotation RATE from vSLAM, so it inherits this directly.
+Measured fused rotation was +503 deg where the IMU saw +50.8 -- and in one window
+the fused value exceeded both inputs, which a complementary filter should never do.
+Do not read anything into the fusion numbers until the rotation source is fixed.
+The stationary fusion result (3.8x noise reduction, locked to absolute heading)
+is unaffected, because there was no rotation to get wrong.
+
+
+A/B ON THE TF, AND THE ACTUAL CAUSE
+
+Same 150 deg pivot command, same rover, runs back to back:
+
+  configuration          IMU        vSLAM       ratio
+  measured TF         -58.93 deg  +816.31 deg   -13.85
+  legacy identity TF  -56.73 deg  +255.00 deg    -4.50
+
+So the TF CONTRIBUTES to the magnitude but is not the cause: legacy is still
+4.5x out. And THE SIGN IS INVERTED IN BOTH, which no choice of TF explains.
+
+A consistent handedness inversion points at the stereo pair, and it is there:
+
+    acamst_right.yaml  projection_matrix[0,3] = +87.120
+
+For a rectified pair OpenCV's right-camera term is -fx*baseline, so it must be
+NEGATIVE. Positive means the camera labelled "right" sits at negative x -- THE
+PAIR IS SWAPPED. What we treat as left is physically the right camera.
+
+WHY EVERY CHECK PASSED ANYWAY. The calibration is internally self-consistent, so
+a mirrored world is indistinguishable from a real one by any measurement that only
+uses LENGTHS:
+
+  depth accurate to 0.3 mm at 1 m      mirroring preserves distances
+  rectification median dy 0.000 px     self-consistent
+  disparity all positive               self-consistent within the swap
+  epipolar control showed -6 px        self-consistent
+
+Handedness is the one thing mirroring does change, and rotation is the only
+quantity we had measured that depends on it. That is why this survived until the
+first moving test.
+
+AND THIS LINE HID IT, in live_vslam.py and every tool derived from it:
+
+    self.baseline = abs(P2[0, 3]) / P1[0, 0]
+
+abs() throws away exactly the sign that encodes which camera is which. Written by
+me, and it silently converted a detectable inconsistency into a correct-looking
+number.
+
+NEXT: swap the halves in the publisher (or fix the calibration's camera order) and
+re-run the pivot. The rotation sign should flip to agree with the IMU. If a
+residual magnitude error remains after that, it is separately attributable to the
+TF, which the A/B above has already quantified at 13.85 vs 4.50.
+
+
+CORRECTION, 2026-08-17 -- THE CONCLUSION ABOVE IS WRONG
+
+The rover was WATCHED during the first pivot and it turned about 800 degrees. So
+vSLAM's +816.31 was very close to correct, and the IMU's -58.93 was the broken
+measurement. Everything above that treats vSLAM as the faulty side is inverted.
+
+The evidence was already here and was read backwards. "IMU yaw stayed within an
+82 deg range and never wrapped past +/-180" was taken as proof that no revolution
+happened. For a rover that actually turned 800 deg, the yaw MUST wrap; the correct
+reading is that the fused yaw was STUCK oscillating in a narrow band while the
+rover spun more than twice round.
+
+WHAT ALSO FALLS WITH IT
+
+  THE SWAPPED-PAIR DIAGNOSIS IS WITHDRAWN. It rested on asserting that
+  P2[0,3] must be negative, which was not verified, and it predicted an inverted
+  rotation sign that the observation contradicts. The depth chain is
+  self-consistent AND agrees with board geometry to 0.3 mm with disparity computed
+  as xL - xR positive, which is what a correctly ordered pair gives. abs(P2[0,3])
+  still discards information and should go, but it is not this bug.
+
+  THE TURN CONTROLLER'S "SIGN BUG" IS NOT ONE. It commanded a turn, the IMU
+  reported no progress, so it kept driving and timed out. It was obeying a broken
+  sensor, not turning the wrong way.
+
+  THE A/B VERDICT FLIPS. Against an observed ~800 deg:
+      measured TF   +816.31   <- close to correct
+      legacy TF     +255.00   <- badly under-reports
+  So the measured height and tilt IMPROVED cuVSLAM's rotation estimate. Keep it.
+
+
+WHY THE IMU FAILS DURING A PIVOT
+
+A pivot runs both motors hard, centimetres from the magnetometer, and the ESP32's
+AHRS uses that magnetometer for absolute heading. The field distortion pulls the
+fused yaw toward a motor-current-dependent direction instead of letting it
+accumulate. It tracked a 2 s pivot correctly (59 deg, matching the 29 deg/s
+measured independently) and failed on 21 s ones, which fits: brief bursts get
+through, sustained rotation does not.
+
+THIS INVERTS A DESIGN ASSUMPTION IN fuse_heading.py. That filter takes rotation
+RATE from vSLAM and ABSOLUTE HEADING from the IMU, on the grounds that the IMU is
+drift-free and vision drifts. True at rest -- the stationary result stands. NOT
+true during sustained rotation, when the IMU is the worse source by an order of
+magnitude.
+
+THE FIX FOR TURN FEEDBACK: use raw gyro gz, which is in the same T:126 packet and
+is not magnetometer-corrected. Measured bias is 0.37 deg/s, so a 20 s turn costs
+about 7 deg of integration error -- far better than a heading that sticks. Reserve
+the fused yaw for what it is good at: absolute heading while stationary or moving
+gently.
+
+
+RESOLVED -- vSLAM ROTATION IS GOOD, THE MAGNETOMETER HEADING IS NOT
+
+Clean closed-loop 90 deg turn, feedback taken from integrated gyro z, logged at
+31 Hz, commanded 0.42 at 10.0 V:
+
+  source                rotation      error vs gyro
+  integrated gyro       +91.60 deg    ground truth
+  vSLAM                 +99.42 deg    +7.82 deg   (+8.5%)
+  IMU fused yaw         +32.56 deg   -59.04 deg   (-64.5%)
+
+  translation during the pivot 0.165 m, turn took 4.8 s at about 98 deg/s
+
+vSLAM tracks rotation to 8.5% on a fast turn. Some of that residual is the gyro's
+own 0.37 deg/s bias, and some is motion blur: at 98 deg/s and a 22 ms exposure a
+feature smears about 2.2 deg, roughly 22 px. A slower turn should do better.
+
+The fused magnetometer heading is wrong by two thirds on the same motion. It is
+not noisy, it is suppressed -- the motors run centimetres from the magnetometer
+and the AHRS leans on it for absolute heading.
+
+  USE THE GYRO for rotation while driving.
+  USE THE FUSED YAW for absolute heading at rest or in gentle motion, which is
+  where it was characterised and where it is genuinely drift-free (0.18 deg/min).
+
+fuse_heading.py's split needs revisiting in that light: it takes rate from vSLAM,
+which is correct and now validated, but its IMU correction term should be
+suppressed or heavily de-weighted while the base is turning under power.
+
+
+AND THE INTERMITTENT "IT STOPPED TURNING" WAS THE BATTERY
+
+The motor deadband tracks pack voltage. Same 0.30 command:
+
+  10.6 V  ->  77 deg/s
+  10.0 V  ->  1.4 deg/s, effectively stalled; 0.40 gives 99, 0.50 gives 135
+
+Every "it turned and then stopped" today was the pack draining, not slipping or
+wedging (after the first time, which was genuinely the paper sheet). Any command
+threshold in this codebase is only valid at a stated voltage.
+
+
+SLOW-TURN ATTEMPT - INCONCLUSIVE, LIMITED BY THE REFERENCE
+
+Commanded 0.32 at 9.57 V rested, aiming for a lower rotation rate to see whether
+motion blur was costing accuracy:
+
+  gyro (reference)    +63.60 deg
+  vSLAM               +76.81 deg    +20.8%
+  IMU fused yaw       -54.56 deg    wrong sign, -185.8%
+  rate while moving   ~11 deg/s
+
+Worse than the fast turn's +8.5%, but this does NOT show vSLAM degrading. The
+REFERENCE degraded, for two compounding reasons:
+
+  GYRO BIAS SCALES WITH WINDOW LENGTH. At 0.37 deg/s, 21.2 s is +/-7.8 deg of pure
+  bias, which is 12% of a 63.6 deg measurement. The fast turn's window was 4.9 s,
+  so bias was only about 1.8 deg on 91.6 deg -- roughly 2%. The shorter the turn,
+  the better the gyro is as truth.
+
+  THE ROVER STALLED TWO THIRDS THROUGH. vSLAM reached 97% of its total rotation by
+  t=6.8 s and the pack then gave out. So about 14 s of the window is the gyro
+  integrating nothing but bias -- roughly 5.3 deg of rotation that never happened,
+  baked into the "truth".
+
+Correcting for that puts vSLAM between +11% and +32% depending on the bias sign,
+which brackets rather than contradicts the +8.5%.
+
+A POINT IN vSLAM'S FAVOUR from the same run: during the stall its per-frame
+rotation fell to a median of 0.001 deg. It correctly reported a stationary rover
+while the gyro kept accumulating.
+
+WHAT A VALID SLOW TEST NEEDS: slow AND short -- a low rate that still completes in
+a few seconds, so bias stays small. That needs a healthy pack, where 0.26-0.30
+gives 30-40 deg/s and 90 deg finishes in about 3 s. At 9.57 V that is not
+available: 0.32 barely moves and dies mid-turn.
+
+BEST ROTATION FIGURE REMAINS THE FAST TURN: vSLAM +8.5% against a gyro reference
+whose own bias contributed only about 2% over that window.

@@ -1,0 +1,94 @@
+# CSI camera profiles.
+#
+# Select a profile via:
+#   1. Env var  CAMERA_PROFILE=<name>  (set in deploy/bee/compose.yml or per-bee env)
+#   2. default_profile below
+#
+# A profile pins module_id + sensor_mode + output resolution + calibration file.
+# Downstream nodes pull resolution from the active profile at launch time.
+#
+# Calibration files live in deploy/bee/calibration/common/ and are mounted
+# read-only at /opt/narsil_ws/calibration inside the vision container.
+# Capture them with a standard ROS 2 camera_calibration run and copy the YAML
+# to the matching filename below.
+
+default_profile: imx219_720p
+
+profiles:
+  # ---------- IMX219 / Raspberry Pi Camera v2 ----------
+  # Tegra driver sensor modes (v4l2-ctl -d /dev/video0 --list-formats-ext):
+  #   0  3264x2464 @ 21 fps   (full sensor)
+  #   1  3264x1848 @ 28 fps
+  #   2  1920x1080 @ 30 fps
+  #   3  1640x1232 @ 30 fps
+  #   4  1280x720  @ 60 fps
+  #   5  1280x720  @ 120 fps
+
+  imx219_720p:
+    module_id: 0
+    sensor_mode: 4
+    image_width: 1280
+    image_height: 720
+    calibration_file: imx219_1280x720.yaml
+
+  imx219_1080p:
+    module_id: 0
+    sensor_mode: 2
+    image_width: 1920
+    image_height: 1080
+    calibration_file: imx219_1920x1080.yaml
+
+  imx219_4k:
+    module_id: 0
+    sensor_mode: 0
+    image_width: 3264
+    image_height: 2464
+    calibration_file: imx219_3264x2464.yaml
+
+  imx477_1080p:
+    module_id: 0
+    sensor_mode: 1
+    image_width: 1920
+    image_height: 1080
+    calibration_file: imx477_1920x1080.yaml
+
+  imx477_4k:
+    module_id: 0
+    sensor_mode: 1
+    image_width: 3840
+    image_height: 2160
+    calibration_file: imx477_3840x2160.yaml
+
+  # ---------- AR0234 stereo HAT (Arducam, V4L2 BA10 — NOT Argus) ----------
+  # driver: v4l2 selects narsil_ar0234_camera (raw BA10 capture + SBS split +
+  # in-node debayer); argus profiles above have no driver field (default argus).
+  # image_width/height = the LEFT eye fed to the encoder; capture_width/height =
+  # the full side-by-side frame the sensor delivers. encoding = what the GPU
+  # debayer component emits on /left/image_raw (NPP CFA native = rgb8).
+  # calibration_file* are the per-unit files provisioned by the rivendell twin
+  # (ACAMST instance), not committed here; camera_name* must match the
+  # camera_name inside those YAMLs.
+  ar0234:
+    driver: v4l2
+    device: /dev/video0
+    capture_width: 2560
+    capture_height: 720
+    framerate: 30
+    image_width: 1280
+    image_height: 720
+    encoding: rgb8
+    calibration_file: acamst_left.yaml
+    camera_name: ar0234_left_2560x720
+    calibration_file_right: acamst_right.yaml
+    camera_name_right: ar0234_right_2560x720
+
+  # Replay bench (NARSIL_VISION_REPLAY=1): the camera node is skipped and a bag/
+  # image_publisher supplies /left/image_raw; only image_width/height are read.
+  # Field bags are 1920x1200/eye (3840x1200 SBS).
+  ar0234_replay:
+    driver: v4l2
+    # Replayed field bags carry the SPLIT left eye: 1280x720 (not the 2560x720
+    # SBS wire format) — encoder letterbox math reads these dims even in replay.
+    image_width: 1280
+    image_height: 720
+    calibration_file: acamst_left.yaml

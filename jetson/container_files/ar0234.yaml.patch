@@ -1,0 +1,16 @@
+--- upstream/ar0234.yaml	2026-08-12 10:35:22
++++ patched/ar0234.yaml	2026-08-12 10:35:56
+@@ -18,6 +18,13 @@
+ # or AE limit-cycles between the under branch and the sat cut (visible
+ # flicker, measured 2026-07-15). Settles dead-zone-stable at scene mean ~44.
+ auto_exposure_target: 42000
++# LOCAL FIX (jetson9, 2026-08-11): the AE upper clamp doubles as a frame-rate
++# ceiling. exposure is expressed in sensor row-times (~14.57us at 3840x1200),
++# so max=5000 pins the longest frame at 5000*14.57us = 72.9ms -> 13.7fps, and
++# the sensor never returns to 30fps even in bright light. 2290 row-times =
++# 33.4ms, the longest exposure that still fits a 30fps frame period.
++# Measured: 13.7fps -> 29.9fps with no visible under-exposure indoors.
++auto_exposure_max: 2290
+ # trigger 0.05, NOT 0.01: at 1% any indoor lamp/window trips the cut and AE
+ # limit-cycles (exp crushed to ~54, scene black, recovers, trips again).
+ # Still 3x more sensitive than the blown-sky fraction observed at Godech.

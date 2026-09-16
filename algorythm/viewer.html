@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground Station</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ---------------------------------------------------------------------------
+ * ONE ACCENT, EVERYTHING ELSE GREY.
+ *
+ * The palette this replaces carried five accent hues at once - gold, teal,
+ * coral, violet, green - and each competed for the same attention. That is most
+ * of what made the panel feel unsorted: when everything is coloured, colour
+ * stops meaning anything. Here only three things are allowed to be chromatic:
+ *
+ *   the accent    the rover, its map, its trail. One hue, and switchable,
+ *                 because which hue is taste rather than legibility.
+ *   ok/warn/bad   status, and only when the status is not nominal.
+ *   nothing else
+ *
+ * The ground is neutral near-black rather than navy: a blue cast makes a warm
+ * accent muddy, and true grey lets the accent be the only hue on screen.
+ *
+ * Free space stays a light neutral at low alpha and obstacles go to the accent
+ * at high alpha, so occupied and free differ in LIGHTNESS as well as hue and
+ * the map survives being read by someone who cannot see the hue at all. No glow
+ * on map geometry - walls are one or two cells thick and bloom eats them.
+ * ------------------------------------------------------------------------- */
+:root{
+  --bg:#0b0b0d;
+  --bg-2:#08080a;
+  --surface:#131317;
+  --surface-2:#1a1a1f;
+  --surface-3:#232329;
+  --line:#2a2a32;
+  --line-soft:#1e1e24;
+  --fg:#f2f2f4;
+  --fg-2:#9a9aa6;
+  --fg-3:#63636e;
+
+  /* set by JS from the chosen theme; these are the fallbacks */
+  --accent:#ff7a45;
+  --accent-dim:rgba(255,122,69,.14);
+
+  --ok:#4ade80;
+  --warn:#fbbf24;
+  --bad:#f43f5e;
+
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --disp:"Space Grotesk","Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;
+  display:flex;flex-direction:column;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ========== top bar ========== */
+header{
+  display:flex;align-items:center;gap:18px;
+  padding:0 16px;height:52px;flex:none;
+  border-bottom:1px solid var(--line);background:var(--surface);
+}
+.brand{display:flex;align-items:baseline;gap:9px;flex:none}
+.brand .mark{
+  font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.01em;
+  text-transform:uppercase;white-space:nowrap;
+}
+.brand .mode{
+  font-size:8.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--fg-3);
+  padding:2px 6px;border:1px solid var(--line);border-radius:3px;white-space:nowrap;
+}
+
+/* stage progress as one rail, not a row of competing chips */
+.stages{display:flex;align-items:center;flex:none}
+.stg{
+  display:flex;align-items:center;gap:7px;padding:0 12px;height:26px;
+  font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--fg-3);background:var(--surface-2);
+  border:1px solid var(--line);border-right:0;white-space:nowrap;
+}
+.stg:first-child{border-radius:3px 0 0 3px}
+.stg:last-child{border-radius:0 3px 3px 0;border-right:1px solid var(--line)}
+.stg .pip{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.45}
+.stg.done{color:var(--fg-2)}
+.stg.done .pip{background:var(--ok);opacity:1}
+.stg.active{color:var(--bg);background:var(--accent);border-color:var(--accent)}
+.stg.active .pip{background:var(--bg);opacity:1}
+
+.spacer{flex:1}
+
+/* the chip that matters most on screen */
+.link{
+  display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface-2);flex:none;
+  font-size:10px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;
+}
+.link .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.link .sub{
+  color:var(--fg-3);letter-spacing:.03em;text-transform:none;font-weight:400;
+}
+.link.s-ok{color:var(--ok);border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.07)}
+.link.s-ok .dot{animation:pulse 2s ease-in-out infinite}
+.link.s-warn{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.07)}
+.link.s-bad{color:var(--bad);border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.1)}
+.link.s-bad .dot{animation:blink .9s steps(1,end) infinite}
+.link.s-idle{color:var(--fg-2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.12}}
+
+/* the operator must never have to guess whether we are driving the rover */
+.transmit{
+  display:none;align-items:center;gap:7px;padding:5px 11px;border-radius:3px;
+  font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:700;flex:none;
+}
+.transmit.show{display:flex}
+.transmit.observe{color:var(--ok);border:1px solid rgba(74,222,128,.45);background:rgba(74,222,128,.09)}
+.transmit.commanding{color:var(--bad);border:1px solid rgba(244,63,94,.5);background:rgba(244,63,94,.11)}
+
+.clock{text-align:right;flex:none;line-height:1.15}
+.clock .t{
+  font-family:var(--disp);font-size:19px;font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
+.clock .l{font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-3)}
+
+/* ========== layout: the map gets the room ========== */
+main{flex:1;display:grid;grid-template-columns:1fr 322px;min-height:0}
+#stage{position:relative;min-width:0;min-height:0;background:var(--bg-2)}
+canvas#map{display:block;width:100%;height:100%;cursor:grab}
+canvas#map.dragging{cursor:grabbing}
+
+aside{
+  border-left:1px solid var(--line);background:var(--surface);
+  overflow-y:auto;display:flex;flex-direction:column;
+  scrollbar-width:thin;scrollbar-color:var(--surface-3) var(--surface);
+}
+aside::-webkit-scrollbar{width:8px}
+aside::-webkit-scrollbar-track{background:var(--surface)}
+aside::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:4px}
+
+/* ========== rail tiers ==========
+   One labelled bar per tier, ordered by how fast it matters during a run. Link
+   is first because if that is wrong, nothing below it means anything. */
+.tier{border-bottom:1px solid var(--line)}
+.tier > h2{
+  margin:0;padding:7px 14px;
+  font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-3);
+  font-weight:600;font-family:var(--mono);
+  background:var(--surface-2);border-bottom:1px solid var(--line-soft);
+  display:flex;align-items:center;gap:8px;
+}
+.tier > h2 .badge{
+  margin-left:auto;font-size:8px;letter-spacing:.11em;padding:1px 6px;
+  border-radius:99px;border:1px solid var(--line);color:var(--fg-3);
+  text-transform:uppercase;white-space:nowrap;
+}
+.tbody{padding:11px 14px}
+
+/* one hero number per tier, at most */
+.hero{display:flex;align-items:baseline;gap:6px}
+.hero .n{
+  font-family:var(--disp);font-size:27px;font-weight:700;line-height:1;
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums;
+}
+.hero .u{font-size:11px;color:var(--fg-2);font-weight:500}
+.hero.na .n{
+  font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--fg-3);
+  letter-spacing:.06em;text-transform:uppercase;
+}
+
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:3.5px 0;border-bottom:1px solid var(--line-soft)}
+.row:last-child{border-bottom:0}
+.row .k{color:var(--fg-3);font-size:10px;letter-spacing:.04em;white-space:nowrap}
+.row .v{font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:500;text-align:right}
+.row .v.na{color:var(--fg-3);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.pair .cell{padding:4px 0}
+.pair .cell .k{display:block;color:var(--fg-3);font-size:9px;letter-spacing:.11em;
+  text-transform:uppercase;margin-bottom:2px}
+.pair .cell .v{font-variant-numeric:tabular-nums;font-size:13.5px;font-weight:600;
+  font-family:var(--disp);letter-spacing:-.01em}
+.pair .cell .v.na{font-family:var(--mono);font-size:9.5px;font-weight:500;
+  color:var(--fg-3);letter-spacing:.06em;text-transform:uppercase}
+.pair .cell .v u{font-size:9px;color:var(--fg-2);text-decoration:none;
+  font-weight:500;margin-left:2px}
+
+.meter{height:3px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:6px}
+.meter i{display:block;height:100%;width:0;background:currentColor;transition:width .15s linear}
+.meter.na i{background:var(--surface-3)}
+
+/* sonar drawn as geometry, not as a sentence: three ranges in three known
+   directions is spatial information and reads instantly as a picture. */
+.sonar{display:flex;align-items:center;gap:12px;margin-top:8px}
+canvas.sonarw{width:104px;height:78px;flex:none}
+.sonar .legend{flex:1;min-width:0}
+.sonar .legend .sr{display:flex;justify-content:space-between;gap:8px;
+  font-size:10.5px;padding:2px 0;font-variant-numeric:tabular-nums}
+.sonar .legend .sr b{color:var(--fg-3);font-weight:500;letter-spacing:.12em;font-size:8.5px}
+
+.rvchip{
+  margin-left:auto;display:flex;align-items:center;gap:5px;padding:1px 7px;
+  border-radius:99px;font-size:8px;letter-spacing:.12em;text-transform:uppercase;
+  font-weight:600;border:1px solid var(--line);color:var(--fg-3);white-space:nowrap;
+}
+.rvchip .d{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.rvchip.s-ok{color:var(--ok);border-color:rgba(74,222,128,.35)}
+.rvchip.s-warn{color:var(--warn);border-color:rgba(251,191,36,.35)}
+.rvchip.s-bad{color:var(--bad);border-color:rgba(244,63,94,.45)}
+
+/* ========== controls ========== */
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chips button{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--fg-2);
+  background:transparent;border:1px solid var(--line);border-radius:3px;
+  padding:4px 8px;cursor:pointer;transition:.12s;
+}
+.chips button:hover{border-color:var(--fg-3)}
+.chips button[aria-pressed="true"]{color:var(--bg);background:var(--fg);border-color:var(--fg)}
+
+.seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;flex:none}
+.seg button{
+  font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;
+  color:var(--fg-2);background:var(--surface-2);border:0;padding:5px 12px;cursor:pointer;
+}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{color:var(--bg);background:var(--fg)}
+
+.swatches{display:flex;gap:7px;align-items:center}
+.swatches button{
+  width:15px;height:15px;border-radius:50%;border:1px solid var(--line);
+  cursor:pointer;padding:0;
+}
+.swatches button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--fg)}
+
+#transport{
+  display:flex;align-items:center;gap:13px;padding:0 16px;height:48px;flex:none;
+  border-top:1px solid var(--line);background:var(--surface);
+}
+#transport button.tb{
+  font-family:var(--mono);font-size:11px;color:var(--fg);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:3px;padding:6px 14px;cursor:pointer;min-width:52px;
+}
+#transport button.tb:hover{border-color:var(--fg-3)}
+#scrub{flex:1;accent-color:var(--accent);height:4px;cursor:pointer;min-width:60px}
+#speed{
+  font-family:var(--mono);font-size:10.5px;background:var(--surface-2);color:var(--fg);
+  border:1px solid var(--line);border-radius:3px;padding:5px 7px;
+}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+/* ========== stage overlays ========== */
+#hud{
+  position:absolute;left:14px;top:12px;pointer-events:none;
+  font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--fg-3);
+  line-height:1.9;
+}
+#hud b{color:var(--fg-2);font-weight:600}
+
+#flash{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse at center,var(--accent-dim),transparent 62%)}
+#flash.go{animation:snap .8s ease-out}
+@keyframes snap{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
+
+#veil{position:absolute;inset:0;display:none;place-items:center;
+  background:rgba(8,8,10,.74);backdrop-filter:blur(2px)}
+#veil.show{display:grid}
+.vcard{
+  text-align:center;padding:22px 28px;border-radius:4px;max-width:360px;
+  background:var(--surface);border:1px solid rgba(244,63,94,.45);
+  box-shadow:0 0 50px -14px rgba(244,63,94,.45);
+}
+.vcard h3{
+  font-family:var(--disp);font-size:14px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--bad);margin:0 0 8px;
+}
+.vcard p{font-size:11px;color:var(--fg-2);line-height:1.65;margin:0 0 16px}
+.vcard button{
+  font-family:var(--mono);font-size:11px;color:var(--fg);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:3px;padding:6px 16px;cursor:pointer;
+}
+.vcard button:hover{border-color:var(--fg-3)}
+
+#missing{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:30px}
+#missing div{max-width:470px;line-height:1.75;font-size:12px;color:var(--fg-2)}
+#missing strong{color:var(--fg)}
+#missing code{color:var(--accent)}
+
+@media (prefers-reduced-motion:reduce){
+  #flash.go{animation:none}
+  .meter i{transition:none}
+  .link .dot{animation:none !important}
+}
+@media (max-width:1080px){
+  main{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) auto}
+  aside{border-left:0;border-top:1px solid var(--line);max-height:48vh}
+  .stages{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="mark">Ground Station</span>
+    <span class="mode" id="mode">--</span>
+  </div>
+  <div class="stages" id="stages"></div>
+  <div class="transmit" id="transmit"><span id="transmit-txt"></span></div>
+  <div class="spacer"></div>
+  <div class="link s-idle" id="link">
+    <span class="dot"></span><span id="link-txt">starting</span>
+    <span class="sub" id="link-sub"></span>
+  </div>
+  <div class="clock">
+    <div class="t" id="sess">0:00</div>
+    <div class="l">session</div>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <canvas id="map"></canvas>
+    <div id="flash"></div>
+    <div id="hud"></div>
+    <div id="veil"><div class="vcard">
+      <h3 id="veil-title">Stream lost</h3>
+      <p id="veil-sub"></p>
+      <button id="retry">retry now</button>
+    </div></div>
+    <div id="missing"><div>
+      <strong>Nothing to show.</strong><br><br>
+      No live ground station answered <code>/meta</code>, and there is no
+      <code>recording.js</code> next to this file.<br><br>
+      Live run: <code>python3 hardware/ground/station.py</code><br>
+      Simulated run: <code>python sim.py</code>
+    </div></div>
+  </div>
+
+  <aside>
+    <section class="tier">
+      <h2>Link <span class="badge" id="link-badge">--</span></h2>
+      <div class="tbody">
+        <div class="pair">
+          <div class="cell"><span class="k">pose age</span><span class="v na" id="age-pose">--</span></div>
+          <div class="cell"><span class="k">sonar age</span><span class="v na" id="age-sonar">--</span></div>
+        </div>
+        <div class="row"><span class="k">packets ok</span><span class="v na" id="pkt-ok">--</span></div>
+        <div class="row"><span class="k">packets bad</span><span class="v na" id="pkt-bad">--</span></div>
+        <div class="row"><span class="k">frames held</span><span class="v" id="nframes">0</span></div>
+      </div>
+    </section>
+
+    <!-- rover tiers are cloned in here, one per rover the run carries -->
+    <div id="rovers"></div>
+
+    <section class="tier">
+      <h2>Mission <span class="badge" id="mission-badge">--</span></h2>
+      <div class="tbody">
+        <div class="hero"><span class="n" id="area">0.0</span><span class="u">m&sup2; mapped</span></div>
+        <div style="height:9px"></div>
+        <div class="row"><span class="k">stage</span><span class="v" id="stg-name">--</span></div>
+        <div class="row"><span class="k">follower</span><span class="v" id="fsm">--</span></div>
+        <div class="row"><span class="k">driven</span><span class="v" id="dist">--</span></div>
+        <div class="row"><span class="k">frontier queue</span><span class="v" id="nfr">0</span></div>
+        <div class="row"><span class="k">perimeter</span><span class="v" id="per">--</span></div>
+      </div>
+    </section>
+
+    <!-- simulator only; hidden unless the run genuinely has two rovers -->
+    <section class="tier" id="tier-sim" style="display:none">
+      <h2>Simulator <span class="badge">two-rover</span></h2>
+      <div class="tbody">
+        <div class="hero"><span class="n" id="cov">0.0</span><span class="u">% of known floor</span></div>
+        <div style="height:9px"></div>
+        <div class="row"><span class="k">partition</span><span class="v" id="split-ratio">--</span></div>
+        <div class="row"><span class="k">work split</span><span class="v" id="split-exact">--</span></div>
+        <div class="row"><span class="k">barrier</span><span class="v" id="barrier">--</span></div>
+        <div class="row"><span class="k">B to A offset</span><span class="v" id="txy">--</span></div>
+        <div class="row"><span class="k">B to A rotation</span><span class="v" id="tth">--</span></div>
+      </div>
+    </section>
+
+    <section class="tier">
+      <h2>View</h2>
+      <div class="tbody">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:11px">
+          <div class="seg" id="viewseg">
+            <button data-v="2d" aria-pressed="true">2D</button>
+            <button data-v="3d" aria-pressed="false">3D</button>
+          </div>
+          <div class="swatches" id="swatches"></div>
+        </div>
+        <div class="chips" id="layers">
+          <button data-l="ga" aria-pressed="true">map</button>
+          <button data-l="gb" aria-pressed="true">map B</button>
+          <button data-l="walls" aria-pressed="true">walls</button>
+          <button data-l="truth" aria-pressed="false">truth</button>
+          <button data-l="sonars" aria-pressed="true">sonar</button>
+          <button data-l="trail" aria-pressed="true">trail</button>
+          <button data-l="front" aria-pressed="true">frontiers</button>
+          <button data-l="tgt" aria-pressed="true">target</button>
+          <button data-l="zones" aria-pressed="true">zones</button>
+          <button data-l="barrier" aria-pressed="true">barrier</button>
+        </div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div id="transport">
+  <button class="tb" id="play">play</button>
+  <button class="tb" id="step">step</button>
+  <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Scrub through the run">
+  <select id="speed" aria-label="Playback speed">
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+    <option value="4">4x</option>
+    <option value="8">8x</option>
+  </select>
+</div>
+
+<template id="rover-tpl">
+  <section class="tier rv">
+    <h2><span class="rv-name">Rover</span>
+        <span class="rvchip s-idle"><span class="d"></span><span class="rv-state">--</span></span></h2>
+    <div class="tbody">
+      <div class="hero na"><span class="n d-bat">no telemetry</span><span class="u d-batu" style="display:none">V battery</span></div>
+      <div class="meter na"><i class="b-bat"></i></div>
+      <div style="height:10px"></div>
+      <div class="pair">
+        <div class="cell"><span class="k">pose x/y</span><span class="v d-xy">--</span></div>
+        <div class="cell"><span class="k">heading</span><span class="v d-yaw">--</span></div>
+      </div>
+      <div class="pair">
+        <div class="cell"><span class="k">cmd v</span><span class="v na d-v">--</span></div>
+        <div class="cell"><span class="k">cmd w</span><span class="v na d-w">--</span></div>
+      </div>
+      <div class="row"><span class="k">pose confidence</span><span class="v na d-conf">no source</span></div>
+      <div class="row"><span class="k">coverage</span><span class="v na d-cov">no truth</span></div>
+      <div class="sonar">
+        <canvas class="sonarw" width="208" height="156"></canvas>
+        <div class="legend">
+          <div class="sr"><b>FWD</b><span class="s-fwd">--</span></div>
+          <div class="sr"><b>LEFT</b><span class="s-left">--</span></div>
+          <div class="sr"><b>RIGHT</b><span class="s-right">--</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
+
+<script src="recording.js"></script>
+<script>
+/*
+ * One renderer, three producers.
+ *
+ *   recording.js                a finished simulator run, scrubbable end to end
+ *   algorythm/server.py         a simulated run streaming over SSE
+ *   hardware/ground/station.py  the real single-rover run, same SSE plumbing
+ *
+ * All three append to the same frame array, so every panel and every map layer
+ * works identically across them. A second rendering path for live telemetry
+ * would be a second set of bugs.
+ *
+ * FIELD NAMES COME FROM station.py, which is the producer that matters. It puts
+ * the rover's telemetry in the frame-global m{} - batt, age_pose, age_sonar,
+ * link, pkt, bad, v, w - because it drives one rover and had no reason to nest.
+ * A tel{a:{...}} form is read in preference where present, so a future
+ * multi-rover driver has somewhere to put it without a viewer change.
+ */
+(function(){
+"use strict";
+
+const $ = id => document.getElementById(id);
+
+/* ---------- accent themes ----------
+ * Everything chromatic derives from one triple, the occupancy palette included,
+ * which is why switching it re-quantises the map layers. Persisted because it
+ * is the operator's choice, not the page's.
+ */
+const THEMES = {
+  ember:  [255,122,69],
+  ice:    [56,189,248],
+  lime:   [163,230,53],
+  violet: [167,139,250],
+};
+const THEME_ORDER = ["ember","ice","lime","violet"];
+let themeName = "ember";
+try { themeName = localStorage.getItem("gs.theme") || "ember"; } catch(e){}
+if(!THEMES[themeName]) themeName = "ember";
+
+function applyTheme(name){
+  themeName = THEMES[name] ? name : "ember";
+  const c = THEMES[themeName], r = document.documentElement.style;
+  r.setProperty("--accent", "rgb(" + c.join(",") + ")");
+  r.setProperty("--accent-dim", "rgba(" + c.join(",") + ",.14)");
+  try { localStorage.setItem("gs.theme", themeName); } catch(e){}
+  for(const b of $("swatches").querySelectorAll("button"))
+    b.setAttribute("aria-pressed", String(b.dataset.t === themeName));
+}
+(function buildSwatches(){
+  const host = $("swatches");
+  for(const n of THEME_ORDER){
+    const b = document.createElement("button");
+    b.dataset.t = n;
+    b.title = n;
+    b.setAttribute("aria-label", "accent colour: " + n);
+    b.style.background = "rgb(" + THEMES[n].join(",") + ")";
+    host.appendChild(b);
+  }
+})();
+applyTheme(themeName);
+
+/* These are the Jetson's own thresholds, from hardware/config.py. Colouring a
+   range differently here from what actually stops the rover would be worse than
+   not colouring it at all. */
+const STOP_DIST_M = 0.25, SLOW_DIST_M = 0.80, SONAR_MAX_M = 4.0;
+
+function start(R, live){
+const META = R.meta, FR = R.frames, RES = META.res, LV = META.levels;
+
+/* ---------- how many rovers ----------
+ *
+ * station.py STUBS rover B rather than omitting it: boundsB arrives as
+ * [0,1,0,1], one degenerate cell, and every frame carries b:[0,0,0]. That is
+ * the "stub B" option out of SINGLE_ROVER_PLAN.txt, and taken at face value it
+ * paints a phantom second rover at the origin. So a degenerate boundsB counts
+ * as solo just as much as an absent one, and the frame's own msrc:"single" is
+ * taken as confirmation once a frame exists.
+ */
+function boundsCells(b){
+  if(!b || b.length < 4) return 0;
+  return Math.max(0, b[1]-b[0]) * Math.max(0, b[3]-b[2]);
+}
+let SOLO = META.rovers === 1 || boundsCells(META.boundsB) < 4;
+const HAS_TRUTH = !!(META.truth && META.truth.bits);
+
+const [ar0,ar1,ac0,ac1] = META.boundsA;
+const bB = boundsCells(META.boundsB) >= 4 ? META.boundsB : META.boundsA;
+const [br0,br1,bc0,bc1] = bB;
+const AW = ac1-ac0, AH = ar1-ar0, BW = bc1-bc0, BH = br1-br0;
+const AX0 = ac0*RES, AY0 = ar0*RES, BX0 = bc0*RES, BY0 = br0*RES;
+
+const OCC_MIN = Math.ceil(0.62 * (LV - 1));
+
+/* ---------- occupancy palettes ---------- */
+function palette(rgbOcc){
+  const p = new Uint8Array((LV+1)*4);
+  for(let i=0;i<=LV;i++){
+    const o=i*4;
+    if(i===LV){ p[o]=p[o+1]=p[o+2]=p[o+3]=0; continue; }
+    const prob = i/(LV-1);
+    if(prob < 0.40){
+      const a = 26 + 84*(1 - prob/0.40);
+      p[o]=232; p[o+1]=232; p[o+2]=234; p[o+3]=a;
+    } else if(prob < 0.62){
+      p[o]=0; p[o+1]=0; p[o+2]=0; p[o+3]=0;
+    } else {
+      const a = 130 + 125*((prob-0.62)/0.38);
+      p[o]=rgbOcc[0]; p[o+1]=rgbOcc[1]; p[o+2]=rgbOcc[2]; p[o+3]=Math.min(255,a);
+    }
+  }
+  return p;
+}
+
+/* A solo run takes the accent: there is no second machine to tell apart, and
+   one hue on screen is the whole point. A two-rover run ignores the theme for
+   identity and always uses gold against teal - a blue-yellow split, which
+   survives colour-vision deficiency. Keeping two maps distinguishable outranks
+   keeping the page monochrome. */
+const RGB_TWO_A = [255,181,69], RGB_TWO_B = [52,224,212];
+let RGB_A, RGB_B, COL_A, COL_B, PAL_A, PAL_B;
+function buildPalettes(){
+  RGB_A = SOLO ? THEMES[themeName] : RGB_TWO_A;
+  RGB_B = RGB_TWO_B;
+  COL_A = "rgb(" + RGB_A.join(",") + ")";
+  COL_B = "rgb(" + RGB_B.join(",") + ")";
+  PAL_A = palette(RGB_A); PAL_B = palette(RGB_B);
+}
+buildPalettes();
+
+function shade(rgb, k){
+  return "rgb(" + rgb.map(c => Math.max(0, Math.min(255, Math.round(c*k)))).join(",") + ")";
+}
+function wallCols(rgb){
+  return {top: shade(rgb,1.14), s1: shade(rgb,0.64), s2: shade(rgb,0.42)};
+}
+const WALL_H = 0.55;
+
+/* ---------- offscreen layers ---------- */
+function layer(w,h){
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const x=c.getContext("2d",{willReadFrequently:false});
+  return {c, x, img:x.createImageData(w,h), w, h,
+          lvl:new Uint8Array(w*h).fill(LV), ext:null};
+}
+const LA = layer(AW,AH), LB = SOLO ? null : layer(BW,BH);
+
+function clearLayer(L){
+  if(!L) return;
+  L.img.data.fill(0); L.lvl.fill(LV); L.x.clearRect(0,0,L.w,L.h);
+  L.ext = null;
+}
+
+/* A hardware OccupancyGrid grows itself, so a delta can name a cell outside the
+   window the run header reserved. Writing past the end of a Uint8ClampedArray
+   is a silent no-op, which on screen looks like a map that quietly stopped
+   filling in - so count the misses and say so once. */
+let dropped = 0, droppedWarned = false;
+function applyDelta(L, pal, b64){
+  if(!L || !b64) return;
+  const bin = atob(b64), n = bin.length>>2;
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  const dv = new DataView(bytes.buffer);
+  const d = L.img.data, lv = L.lvl;
+  for(let i=0;i<n;i++){
+    const packed = dv.getUint32(i*4,true);
+    const idx = packed>>>5, q = packed & 31, o = idx*4, p = q*4;
+    if(o+3 >= d.length){ dropped++; continue; }
+    d[o]=pal[p]; d[o+1]=pal[p+1]; d[o+2]=pal[p+2]; d[o+3]=pal[p+3];
+    lv[idx] = q;                 // kept parallel so the 3D pass needs no pixels
+    /* Widen the known-cell extent as we go. Tracking it here costs one compare
+       per delta cell, where recomputing it later would mean rescanning the
+       whole window every frame. */
+    const rr = (idx / L.w) | 0, cc = idx - rr * L.w;
+    const e = L.ext;
+    if(!e) L.ext = {r0:rr, r1:rr, c0:cc, c1:cc};
+    else {
+      if(rr < e.r0) e.r0 = rr; if(rr > e.r1) e.r1 = rr;
+      if(cc < e.c0) e.c0 = cc; if(cc > e.c1) e.c1 = cc;
+    }
+  }
+}
+function blitLayer(L){ if(!L) return; L.x.putImageData(L.img,0,0); }
+function warnDropped(){
+  if(!dropped || droppedWarned) return;
+  droppedWarned = true;
+  console.warn("viewer: " + dropped + (dropped === 1 ? " map cell" : " map cells")
+    + " fell outside the grid window the run header reserved (boundsA "
+    + META.boundsA.join(",") + "). The grid grew past it - widen the header "
+    + "server-side or the map will stop filling in.");
+}
+/* Only the palette changed, so the levels are still good: this is a repaint,
+   not a re-decode. */
+function recolour(){
+  for(const pair of [[LA, PAL_A], [LB, PAL_B]]){
+    const L = pair[0], pal = pair[1];
+    if(!L) continue;
+    const d = L.img.data, lv = L.lvl;
+    for(let i=0;i<lv.length;i++){
+      const p = lv[i]*4, o = i*4;
+      d[o]=pal[p]; d[o+1]=pal[p+1]; d[o+2]=pal[p+2]; d[o+3]=pal[p+3];
+    }
+    blitLayer(L);
+  }
+}
+
+/* ---------- ground truth (simulator only) ---------- */
+const TRUTH = !HAS_TRUTH ? null : (function(){
+  const t = META.truth, c=document.createElement("canvas");
+  c.width=t.w; c.height=t.h;
+  const x=c.getContext("2d"), img=x.createImageData(t.w,t.h), d=img.data;
+  const bin=atob(t.bits);
+  for(let i=0;i<t.w*t.h;i++){
+    if((bin.charCodeAt(i>>3)>>(7-(i&7)))&1){
+      const o=i*4; d[o]=112; d[o+1]=112; d[o+2]=124; d[o+3]=88;
+    }
+  }
+  x.putImageData(img,0,0); return c;
+})();
+
+/* ---------- camera ----------
+ *
+ * Axonometric, not perspective, and deliberately:
+ *
+ *   - an affine map lets the accumulated grid be handed to the canvas transform
+ *     and blitted, instead of resampled cell by cell every frame
+ *   - one metre is the same length everywhere, so the scale bar stays true
+ *
+ * pitch 0 collapses to a plain top-down view, which is what 2D mode is. There
+ * is no second render path to keep in sync.
+ */
+const cam = {yaw:0, pitch:0, zoom:1, cx:0, cy:0, panx:0, pany:0, mode:"2d"};
+/* station.py reserves a fixed +/-9 m window because a hardware OccupancyGrid
+   grows itself, so fitting boundsA would show 18x18 m of mostly nothing with
+   the actual map a few metres across. Frame the KNOWN cells instead, and stop
+   as soon as the operator zooms or pans -- refitting under someone's hands is
+   worse than a bad default. */
+let autoFit = true;
+/* The visible window in metres, whatever fit() settled on. The floor plate and
+   the scale bar follow it rather than the reserved bounds. */
+let VX0 = 0, VY0 = 0, VWM = 1, VHM = 1;
+const CAM3 = {yaw:-0.62, pitch:0.95};
+let CA=1, SA=0, CP=1, SP=0;
+function camSync(){
+  CA=Math.cos(cam.yaw); SA=Math.sin(cam.yaw);
+  CP=Math.cos(cam.pitch); SP=Math.sin(cam.pitch);
+}
+
+const cv = $("map"), cx = cv.getContext("2d");
+let S=1, OX=0, OY=0, DPR=1;
+
+/* Scratch, not a returned pair: this runs a few thousand times per frame in the
+   3D pass and a two-element array each time shows up in a profile. */
+let _sx=0, _sy=0;
+function pj(x, y, z){
+  const dx = x - cam.cx, dy = y - cam.cy;
+  _sx = OX + S*(dx*CA + dy*SA);
+  _sy = OY - S*((-dx*SA + dy*CA)*CP + (z||0)*SP);
+}
+function depth(x, y){ return -(x - cam.cx)*SA + (y - cam.cy)*CA; }
+function groundMatrix(){
+  return [ S*CA, S*CP*SA, S*SA, -S*CP*CA,
+           OX - S*(cam.cx*CA + cam.cy*SA),
+           OY - S*CP*(cam.cx*SA - cam.cy*CA) ];
+}
+
+function fit(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1,Math.round(r.width*DPR));
+  cv.height = Math.max(1,Math.round(r.height*DPR));
+  camSync();
+
+  let ox = AX0, oy = AY0, wm = AW*RES, hm = AH*RES;
+  const e = autoFit ? LA.ext : null;
+  if(e){
+    const pad = 0.7;                       // metres of breathing room
+    ox = AX0 + e.c0*RES - pad;
+    oy = AY0 + e.r0*RES - pad;
+    wm = Math.max(2.5, (e.c1 - e.c0 + 1)*RES + 2*pad);
+    hm = Math.max(2.5, (e.r1 - e.r0 + 1)*RES + 2*pad);
+  }
+  /* Never let the rover leave the frame. The mapped cells alone can exclude it:
+     it drives through space the sonar has not returned anything from, and a
+     ground station that loses the machine off the edge of its own map is worse
+     than one that is slightly too zoomed out. */
+  if(e){
+    const f0 = FR[cur];
+    if(f0 && f0.a){
+      const m = 0.8;
+      const x0 = Math.min(ox, f0.a[0] - m), x1 = Math.max(ox + wm, f0.a[0] + m);
+      const y0 = Math.min(oy, f0.a[1] - m), y1 = Math.max(oy + hm, f0.a[1] + m);
+      ox = x0; oy = y0; wm = x1 - x0; hm = y1 - y0;
+    }
+  }
+  VX0 = ox; VY0 = oy; VWM = wm; VHM = hm;
+  /* Fit the PROJECTED bounding box, so orbiting never walks the map off the
+     edge of the canvas. */
+  let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+  const zs = cam.mode === "3d" ? [0, WALL_H] : [0];
+  for(const c of [[0,0],[wm,0],[0,hm],[wm,hm]]){
+    for(const z of zs){
+      const u = c[0]*CA + c[1]*SA;
+      const v = (-c[0]*SA + c[1]*CA)*CP + z*SP;
+      if(u<minx) minx=u; if(u>maxx) maxx=u;
+      if(v<miny) miny=v; if(v>maxy) maxy=v;
+    }
+  }
+  const pw = Math.max(1e-6, maxx-minx), ph = Math.max(1e-6, maxy-miny);
+  const pad = cam.mode === "3d" ? 0.88 : 0.94;
+  S = Math.min(cv.width/pw, cv.height/ph) * pad * cam.zoom;
+  cam.cx = ox + wm/2 + cam.panx;
+  cam.cy = oy + hm/2 + cam.pany;
+  OX = cv.width/2; OY = cv.height/2;
+}
+
+/* ---------- playback state ---------- */
+let cur=-1, playing=false, speed=1, acc=0, lastTs=0, lastStg=null;
+const trailA=[], trailB=[];
+const show = {truth:false, ga:true, gb:true, walls:true, sonars:true, trail:true,
+              front:true, tgt:true, zones:true, barrier:true};
+
+function resetTo(i){
+  clearLayer(LA); clearLayer(LB);
+  trailA.length=0; trailB.length=0; REG=null;
+  for(let k=0;k<=i;k++) accumulate(k);
+  cur=i; blitLayer(LA); blitLayer(LB);
+}
+function accumulate(k){
+  const f=FR[k];
+  if(!f) return;
+  applyDelta(LA,PAL_A,f.ga); applyDelta(LB,PAL_B,f.gb);
+  if(f.a) trailA.push(f.a);
+  if(f.b && !SOLO) trailB.push(f.b);
+  if(f.regA) buildRegions(f);
+}
+/* Refit only when the map has grown by half a metre or more. Reacting to every
+   new cell would nudge the zoom continuously while the rover drives. */
+let fittedExt = null;
+function refitIfGrown(){
+  if(!autoFit || !LA.ext) return;
+  const e = LA.ext, f = fittedExt, step = 10;   // cells, 0.5 m at RES 0.05
+  if(f && Math.abs(e.r0-f.r0) < step && Math.abs(e.r1-f.r1) < step
+        && Math.abs(e.c0-f.c0) < step && Math.abs(e.c1-f.c1) < step) return;
+  fittedExt = {r0:e.r0, r1:e.r1, c0:e.c0, c1:e.c1};
+  fit();
+}
+
+function goto(i){
+  i = Math.max(0, Math.min(FR.length-1, i));
+  if(i===cur) return;
+  if(i<cur){ resetTo(i); }
+  else { for(let k=cur+1;k<=i;k++) accumulate(k); cur=i; blitLayer(LA); blitLayer(LB); }
+  refitIfGrown();
+  render();
+}
+
+/* ---------- connection state ------------------------------------------------
+ *
+ * The page must never imply a live link it does not have.
+ *
+ *   replay        a file on disk; there is no link and we say so
+ *   connecting    first attempt
+ *   live          open, frames arriving
+ *   stale         open, but nothing for several frame intervals
+ *   reconnecting  dropped, retrying, with the wait shown
+ *   offline       still retrying, but failing long enough to alarm
+ *   ended         the server said the run finished; not a fault
+ *
+ * EventSource reconnects on its own but gives no way to tell the operator what
+ * it is doing, and will not recover a stream the server has closed. Owning the
+ * retry is what makes the indicator honest.
+ */
+const CONN = {state:"replay", attempts:0, retryAt:0, lastAt:0, src:null, timer:null};
+const STALE_MS = Math.max(2000, (META.dt || 0.4) * 1000 * 3);
+let lastT = -Infinity, sessT0 = 0, dupes = 0;
+
+function linkClass(){
+  switch(CONN.state){
+    case "live": return "s-ok";
+    case "stale": case "connecting": case "reconnecting": return "s-warn";
+    case "offline": return "s-bad";
+    default: return "s-idle";
+  }
+}
+function paintLink(){
+  $("link").className = "link " + linkClass();
+  $("link-txt").textContent = {
+    replay:"replay", connecting:"connecting", live:"live", stale:"stale",
+    reconnecting:"reconnecting", offline:"offline", ended:"run ended",
+  }[CONN.state] || CONN.state;
+
+  let sub = "";
+  if(CONN.state === "replay") sub = "file, no link";
+  else if(CONN.state === "reconnecting" || CONN.state === "offline")
+    sub = "retry " + Math.max(0,(CONN.retryAt-performance.now())/1000).toFixed(0)
+        + "s, attempt " + CONN.attempts;
+  else if(CONN.lastAt) sub = fmtAge((performance.now()-CONN.lastAt)/1000) + " ago";
+  $("link-sub").textContent = sub;
+  $("link-badge").textContent = live
+    ? (CONN.state === "live" ? "streaming" : CONN.state) : "recording";
+
+  const bad = CONN.state === "reconnecting" || CONN.state === "offline";
+  $("veil").classList.toggle("show", bad);
+  if(bad){
+    $("veil-title").textContent = CONN.state === "offline" ? "Connection lost" : "Stream dropped";
+    $("veil-sub").textContent =
+      "No telemetry from the ground station. Attempt " + CONN.attempts + ", retrying in "
+      + Math.max(0,(CONN.retryAt-performance.now())/1000).toFixed(0) + "s. "
+      + "The map behind this is the last state received and is NOT current.";
+  }
+}
+
+/* Throw away everything accumulated, ready to rebuild from a replayed backlog. */
+function resetStream(){
+  console.info("viewer: stream reopened, rebuilding from the server's replay "
+    + "(held " + FR.length + " frames).");
+  FR.length = 0;
+  clearLayer(LA); clearLayer(LB);
+  trailA.length = 0; trailB.length = 0;
+  REG = null; cur = -1; lastT = -Infinity; dupes = 0;
+  fittedExt = null; autoFit = true;
+  lastStg = null;
+  $("scrub").max = 0; $("scrub").value = 0;
+}
+
+function acceptFrame(f){
+  /* server.py replays its ENTIRE backlog to every new subscriber, so a
+     reconnect re-delivers every frame it has ever sent. Frame time is monotonic
+     within a run, which makes it the cheapest reliable way to tell a replayed
+     frame from a new one, and it needs no server change. The replay is a feature
+     as well as a hazard: it backfills whatever the outage missed, in order, so
+     the deltas still compose. */
+  if(typeof f.t === "number"){
+    if(f.t <= lastT){ dupes++; return false; }
+    lastT = f.t;
+  }
+  CONN.lastAt = performance.now();
+  if(!sessT0) sessT0 = CONN.lastAt;
+  FR.push(f);
+  return true;
+}
+
+function openStream(){
+  if(CONN.timer){ clearTimeout(CONN.timer); CONN.timer = null; }
+  CONN.state = CONN.attempts ? "reconnecting" : "connecting";
+  paintLink();
+
+  const src = new EventSource("/events");
+  CONN.src = src;
+  src.onopen = () => {
+    /* Both producers replay their ENTIRE backlog to every new subscriber, so on
+       a reconnect the right move is to drop what we hold and rebuild from what
+       arrives. Deduping on monotonic t instead looks equivalent and is not: a
+       server that RESTARTED begins a new run with t back at 0, and every frame
+       of it would be rejected as a duplicate of the old run. The viewer would
+       sit there looking connected and never update. Rebuilding is correct for
+       both cases -- a resumed run reproduces the same state and backfills the
+       outage, a new run replaces it. */
+    if(FR.length) resetStream();
+    CONN.attempts = 0; CONN.state = "live"; paintLink();
+  };
+  src.onmessage = ev => {
+    let f;
+    try { f = JSON.parse(ev.data); }
+    catch(err){ console.warn("viewer: unparseable frame", err); return; }
+    /* station.py sets done on the LAST REAL FRAME, and that frame carries state
+       worth drawing. server.py sends a bare {done:true} carrying nothing. The
+       presence of a timestamp tells the two apart, so neither loses its final
+       frame and neither draws an empty one. */
+    const bare = f.done && f.t === undefined;
+    if(!bare){
+      if(!acceptFrame(f)) { if(!f.done) return; }
+      else {
+        if(CONN.state !== "live"){ CONN.state = "live"; paintLink(); }
+        $("scrub").max = FR.length-1;
+        if(cur >= FR.length-2) goto(FR.length-1);
+      }
+    }
+    if(f.done){
+      CONN.state = "ended"; paintLink();
+      src.close(); CONN.src = null;
+      playing = false; $("play").textContent = "replay";
+    }
+  };
+  src.onerror = () => {
+    src.close();
+    if(CONN.src === src) CONN.src = null;
+    if(CONN.state === "ended") return;
+    scheduleRetry();
+  };
+}
+function scheduleRetry(){
+  CONN.attempts++;
+  const wait = Math.min(15000, 1000 * Math.pow(2, Math.min(4, CONN.attempts-1)));
+  CONN.retryAt = performance.now() + wait;
+  /* Retry forever - a ground station that gives up on a rover is useless - but
+     escalate the wording once it has been failing long enough that the operator
+     should go and look at the hardware. */
+  CONN.state = CONN.attempts >= 4 ? "offline" : "reconnecting";
+  paintLink();
+  CONN.timer = setTimeout(openStream, wait);
+}
+$("retry").onclick = () => {
+  if(CONN.timer){ clearTimeout(CONN.timer); CONN.timer = null; }
+  CONN.attempts = 0;
+  openStream();
+};
+
+/* ---------- rovers ---------- */
+const ROVERS = [{key:"a", label:"Rover", pose:"a", fsm:"wfa", sonar:"sna",
+                 beam:"sba", front:"fa", tgt:"tga", cov:"cova", area:"areaa"}];
+if(!SOLO){
+  ROVERS[0].label = "Rover A";
+  ROVERS.push({key:"b", label:"Rover B", pose:"b", fsm:"wfb", sonar:"snb",
+               beam:"sbb", front:"fb", tgt:"tgb", cov:"covb", area:"areab"});
+}
+
+/* 3S pack: 12.6 V full, 9.0 V flat. The one healthy figure on record for this
+   chassis is 12.14 V, which sits where it should on that scale. */
+const BAT_MIN = 9.0, BAT_MAX = 12.6;
+
+const RV = {};
+(function buildRoverTiers(){
+  const host = $("rovers"), tpl = $("rover-tpl");
+  for(const r of ROVERS){
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    const q = sel => node.querySelector(sel);
+    q(".rv-name").textContent = r.label;
+    RV[r.key] = {
+      node, chip: q(".rvchip"), state: q(".rv-state"),
+      bat: q(".d-bat"), batU: q(".d-batu"), batBar: q(".b-bat"), batMeter: q(".meter"),
+      xy: q(".d-xy"), yaw: q(".d-yaw"), v: q(".d-v"), w: q(".d-w"),
+      conf: q(".d-conf"), cov: q(".d-cov"),
+      son: {fwd:q(".s-fwd"), left:q(".s-left"), right:q(".s-right")},
+      canvas: q("canvas.sonarw"),
+    };
+    host.appendChild(node);
+  }
+})();
+
+/* ---------- helpers ---------- */
+function fmtClock(sec){
+  if(!(sec > 0)) return "0:00";
+  const s = Math.floor(sec % 60), m = Math.floor(sec/60) % 60, h = Math.floor(sec/3600);
+  return (h ? h + ":" + String(m).padStart(2,"0") : String(m)) + ":" + String(s).padStart(2,"0");
+}
+function fmtAge(sec){
+  if(sec === null || !isFinite(sec)) return "--";
+  if(sec < 1)  return (sec*1000).toFixed(0) + "ms";
+  if(sec < 60) return sec.toFixed(1) + "s";
+  return fmtClock(sec);
+}
+function setBar(el,pct){ el.style.width = Math.max(0,Math.min(100,pct))+"%"; }
+function ok(el, txt){ el.classList.remove("na"); el.textContent = txt; }
+function na(el, txt){ el.classList.add("na"); el.textContent = txt; }
+
+/* ---------- per-rover telemetry resolution ----------
+ *
+ * station.py puts the single rover's telemetry in the frame-global m{}. A future
+ * multi-rover driver would have to nest it, so tel{key:{...}} wins where it
+ * exists, and the global fields are read only for rover A - the one they can
+ * possibly describe.
+ */
+function telemetry(f, r){
+  const m = f.m || {};
+  const t = (f.tel && f.tel[r.key]) || null;
+  const g = r.key === "a";
+  const num = v => (typeof v === "number" && isFinite(v)) ? v : null;
+  /* jetson/agent.py currently transmits battery_v=0.0 as a placeholder, so a
+     reading of exactly zero is an ABSENT reading, not a flat pack. Painting
+     0.00 V in alarm red would be a false alarm on every single run. */
+  const batRaw = (t && num(t.bat) !== null) ? num(t.bat) : (g ? num(m.batt) : null);
+  return {
+    bat: (batRaw !== null && batRaw > 0.05) ? batRaw : null,
+    conf: t ? num(t.conf) : null,
+    agePose: (t && num(t.age) !== null) ? num(t.age) : (g ? num(m.age_pose) : null),
+    ageSonar: g ? num(m.age_sonar) : null,
+    link: g ? num(m.link) : null,
+    pkt: g ? num(m.pkt) : null,
+    bad: g ? num(m.bad) : null,
+    v: g ? num(m.v) : null,
+    w: g ? num(m.w) : null,
+  };
+}
+
+/* Per-rover link state.
+ *
+ * There is one stream, so a rover's "connected" is the freshness of its
+ * telemetry, not a socket of its own. station.py already decides this - m.link
+ * is its own stale verdict, against thresholds the Jetson enforces - so that is
+ * preferred over anything inferred here from arrival times. */
+function roverState(t){
+  if(!live) return ["s-idle", "replay"];
+  if(CONN.state === "ended") return ["s-idle", "ended"];
+  if(CONN.state === "reconnecting" || CONN.state === "offline") return ["s-bad", "link down"];
+  if(t.link === 0) return ["s-bad", "stale"];
+  if(t.link === 1) return ["s-ok", "live"];
+  const age = t.agePose;
+  if(age === null) return ["s-bad", "no data"];
+  if(age*1000 > STALE_MS*2) return ["s-bad", "lost"];
+  if(age*1000 > STALE_MS) return ["s-warn", "stale"];
+  return ["s-ok", "live"];
+}
+
+/* ---------- sonar widget ----------
+ * Three ranges in three known directions is a picture, and it was being printed
+ * as a sentence. Colour matches what actually stops the rover. */
+function drawSonarWidget(ui, reads){
+  const c = ui.canvas, g = c.getContext("2d");
+  const W = c.width, H = c.height;
+  g.clearRect(0,0,W,H);
+  const px = W/2, py = H*0.60, maxLen = Math.min(W*0.40, H*0.50);
+  const css = getComputedStyle(document.documentElement);
+  const varv = (n, fb) => (css.getPropertyValue(n) || "").trim() || fb;
+  const pick = v => v <= STOP_DIST_M ? varv("--bad","#f43f5e")
+                  : v <= SLOW_DIST_M ? varv("--warn","#fbbf24")
+                  : varv("--ok","#4ade80");
+  const dirs = [["fwd",0,-1],["left",-1,0],["right",1,0]];
+  g.lineCap = "butt";
+  for(const d of dirs){
+    const raw = reads ? reads[d[0]] : undefined;
+    const v = (typeof raw === "number") ? raw : null;
+    g.strokeStyle = varv("--surface-3","#232329"); g.lineWidth = 9;
+    g.beginPath();
+    g.moveTo(px + d[1]*14, py + d[2]*14);
+    g.lineTo(px + d[1]*(14+maxLen), py + d[2]*(14+maxLen));
+    g.stroke();
+    /* A lost echo leaves the track empty rather than drawing a full bar. A
+       -1 rendered as maximum range is how a rover drives into a wall. */
+    if(v !== null && v >= 0){
+      const len = maxLen * Math.min(1, v / SONAR_MAX_M);
+      g.strokeStyle = pick(v); g.lineWidth = 9;
+      g.beginPath();
+      g.moveTo(px + d[1]*14, py + d[2]*14);
+      g.lineTo(px + d[1]*(14+len), py + d[2]*(14+len));
+      g.stroke();
+    }
+  }
+  g.fillStyle = varv("--fg","#f2f2f4");
+  g.beginPath();
+  g.moveTo(px, py-11); g.lineTo(px-9, py+9); g.lineTo(px, py+4);
+  g.lineTo(px+9, py+9); g.closePath(); g.fill();
+}
+
+/* ---------- stage rail ----------
+ * The hardware mission and the simulator mission are different shapes, so the
+ * rail takes its labels from whichever the frames describe rather than assuming
+ * three simulator stages that hardware never enters. */
+const HW_STAGES = ["WALL_FOLLOW","SWEEP","DONE"];
+const HW_LABELS = ["Wall follow","Sweep","Done"];
+const SIM_LABELS_SOLO = ["Acquire","Perimeter","Sweep"];
+const SIM_LABELS_TWO = ["Marker lock","Perimeter","Partition"];
+let stageKind = null;
+
+function paintStages(f){
+  const hw = HW_STAGES.indexOf(f.stg_name) >= 0;
+  const kind = hw ? "hw" : (SOLO ? "solo" : "two");
+  if(kind !== stageKind){
+    stageKind = kind;
+    const labels = hw ? HW_LABELS : (SOLO ? SIM_LABELS_SOLO : SIM_LABELS_TWO);
+    const host = $("stages");
+    host.innerHTML = "";
+    for(const txt of labels){
+      const d = document.createElement("div");
+      d.className = "stg";
+      const pip = document.createElement("span");
+      pip.className = "pip";
+      d.appendChild(pip);
+      d.appendChild(document.createTextNode(txt));
+      host.appendChild(d);
+    }
+  }
+  const idx = stageKind === "hw" ? Math.max(0, HW_STAGES.indexOf(f.stg_name))
+                                 : Math.max(0, (f.stg || 1) - 1);
+  const kids = $("stages").children;
+  for(let i=0;i<kids.length;i++)
+    kids[i].className = "stg" + (i === idx ? " active" : (i < idx ? " done" : ""));
+}
+
+/* ---------- run-dependent chrome, applied once a frame exists ---------- */
+let chromeDone = false;
+function ensureChrome(f){
+  if(chromeDone) return;
+  chromeDone = true;
+
+  /* station.py stubs rover B, so meta alone can be ambiguous; the frame says so
+     outright. If it disagrees with what meta implied, the frame wins - and we
+     say so, rather than silently painting a phantom. */
+  if(f.msrc === "single" && !SOLO){
+    console.warn("viewer: meta looked like two rovers but the frames carry "
+      + "msrc=single; treating the run as solo.");
+    SOLO = true;
+    buildPalettes(); recolour();
+  }
+  $("mode").textContent = (live ? "live" : "recording")
+    + " / " + (SOLO ? "one rover" : "two rovers");
+  $("tier-sim").style.display = SOLO ? "none" : "";
+  if(SOLO){ hideLayer("gb"); hideLayer("zones"); hideLayer("barrier"); }
+  if(!HAS_TRUTH) hideLayer("truth");
+
+  /* Whether we are commanding the rover is not in station.py's frames today -
+     only printed at startup - so it can only be shown if a producer sends it.
+     Guessing would be worse than a blank. */
+  const obs = (typeof f.observe === "boolean") ? f.observe
+            : (typeof META.observe === "boolean") ? META.observe : null;
+  if(obs !== null){
+    $("transmit").className = "transmit show " + (obs ? "observe" : "commanding");
+    $("transmit-txt").textContent = obs ? "observe / not transmitting" : "commanding";
+  }
+}
+function hideLayer(l){
+  const b = document.querySelector('#layers button[data-l="' + l + '"]');
+  if(b) b.style.display = "none";
+}
+function showLayer(l){
+  const b = document.querySelector('#layers button[data-l="' + l + '"]');
+  if(b) b.style.display = "";
+}
+
+/* ---------- panels ---------- */
+function updatePanels(){
+  const f = FR[cur];
+  $("nframes").textContent = FR.length + (dupes ? "  (" + dupes + " dup dropped)" : "");
+  if(!f) return;
+  ensureChrome(f);
+  const m = f.m || {};
+  paintStages(f);
+
+  // ---- link tier
+  const tA = telemetry(f, ROVERS[0]);
+  /* Before the first packet arrives station.py reports age as monotonic uptime,
+     which renders as hours and reads like a stalled clock rather than "nothing
+     has ever arrived". */
+  const neverHeard = tA.pkt === 0;
+  if(neverHeard){
+    na($("age-pose"), "never"); na($("age-sonar"), "never");
+  } else if(tA.agePose !== null){
+    ok($("age-pose"), fmtAge(tA.agePose));
+    $("age-pose").style.color = tA.agePose > 1.0 ? "var(--warn)" : "";
+  } else na($("age-pose"), live ? "--" : "replay");
+  if(neverHeard){
+    /* both already set above */
+  } else if(tA.ageSonar !== null){
+    ok($("age-sonar"), fmtAge(tA.ageSonar));
+    $("age-sonar").style.color = tA.ageSonar > 2.0 ? "var(--warn)" : "";
+  } else na($("age-sonar"), live ? "--" : "replay");
+  if(tA.pkt !== null) ok($("pkt-ok"), String(tA.pkt)); else na($("pkt-ok"), "n/a");
+  if(tA.bad !== null){
+    ok($("pkt-bad"), String(tA.bad));
+    $("pkt-bad").style.color = tA.bad > 0 ? "var(--warn)" : "";
+  } else na($("pkt-bad"), "n/a");
+
+  // ---- mission tier
+  /* station.py sends the mapped area in BOTH m.area and m.cov, and m.cov is
+     square metres despite its name: mission.coverage_note() returns
+     free*res^2. m.area is the correctly named one, so that is what is read.
+     m.cov is only trusted where the run has ground truth to make it a real
+     percentage. */
+  if(typeof m.area === "number") $("area").textContent = m.area.toFixed(1);
+  $("stg-name").textContent = f.stg_name || ("stage " + (f.stg || "?"));
+  $("fsm").textContent = f.wfa || "--";
+  if(typeof m.da === "number")
+    $("dist").textContent = (m.da + (typeof m.db === "number" ? m.db : 0)).toFixed(1) + " m";
+  $("nfr").textContent = f.nfr ? f.nfr.reduce((a,b)=>a+b,0)
+    : ((f.fa?f.fa.length:0)+(f.fb?f.fb.length:0));
+  $("per").textContent = (typeof m.per === "number" && m.per > 0) ? m.per.toFixed(0) + " m" : "--";
+  $("mission-badge").textContent = f.done ? "complete" : "running";
+
+  // ---- simulator tier (two-rover only)
+  if(!SOLO){
+    if(typeof m.cov === "number") $("cov").textContent = m.cov.toFixed(1);
+    if(f.split_ratio)
+      $("split-ratio").textContent = (f.split_ratio[0]*100).toFixed(1) + "% / "
+                                   + (f.split_ratio[1]*100).toFixed(1) + "%";
+    if(f.work_ratio){
+      const wa = f.work_ratio[0]*100;
+      $("split-exact").textContent = wa.toFixed(0) + "% / " + (100-wa).toFixed(0) + "% unexplored";
+      $("split-exact").style.color = Math.abs(wa-50) < 5 ? "var(--ok)" : "var(--warn)";
+    }
+    const stg = f.stg || 1;
+    $("barrier").textContent = stg >= 3
+      ? (f.stg_name === "STAGE_3A_SEPARATE" ? "arming" : "armed") : "standby";
+    if(f.T){
+      $("txy").textContent = f.T[0].toFixed(2) + ", " + f.T[1].toFixed(2) + " m";
+      $("tth").textContent = (f.T[2]*180/Math.PI).toFixed(1) + " deg";
+    }
+  }
+
+  // ---- rover tiers
+  for(const r of ROVERS){
+    const ui = RV[r.key], t = telemetry(f, r), st = roverState(t);
+    ui.chip.className = "rvchip " + st[0];
+    ui.state.textContent = st[1];
+
+    if(t.bat !== null){
+      ok(ui.bat, t.bat.toFixed(2));
+      ui.bat.closest(".hero").classList.remove("na");
+      ui.batU.style.display = "";
+      ui.batMeter.classList.remove("na");
+      setBar(ui.batBar, (t.bat - BAT_MIN)/(BAT_MAX - BAT_MIN)*100);
+      const c = t.bat < 10.2 ? "var(--bad)" : t.bat < 11.1 ? "var(--warn)" : "var(--accent)";
+      ui.bat.style.color = t.bat < 11.1 ? c : "";
+      ui.batMeter.style.color = c;
+    } else {
+      na(ui.bat, "no telemetry");
+      ui.bat.closest(".hero").classList.add("na");
+      ui.batU.style.display = "none";
+      ui.batMeter.classList.add("na"); setBar(ui.batBar, 0);
+      ui.bat.style.color = "";
+    }
+
+    const p = f[r.pose];
+    if(p){
+      ok(ui.xy, p[0].toFixed(2) + ", " + p[1].toFixed(2));
+      ok(ui.yaw, (p[2]*180/Math.PI).toFixed(0) + " deg");
+    } else { na(ui.xy, "--"); na(ui.yaw, "--"); }
+
+    if(t.v !== null){ ui.v.classList.remove("na"); ui.v.innerHTML = t.v.toFixed(2) + "<u>m/s</u>"; }
+    else na(ui.v, "n/a");
+    if(t.w !== null){ ui.w.classList.remove("na"); ui.w.innerHTML = t.w.toFixed(2) + "<u>rad/s</u>"; }
+    else na(ui.w, "n/a");
+
+    /* Nothing in the pipeline publishes a pose confidence. cuVSLAM's odometry
+       carries a 6x6 pose covariance that nobody reads yet; until something
+       reduces it to a scalar this stays blank rather than invented. */
+    if(t.conf !== null){
+      ok(ui.conf, (t.conf*100).toFixed(0) + "%");
+      ui.conf.style.color = t.conf < 0.45 ? "var(--bad)" : t.conf < 0.75 ? "var(--warn)" : "";
+    } else na(ui.conf, "no source");
+
+    const covPct = m[r.cov], covArea = m[r.area];
+    if(HAS_TRUTH && typeof covPct === "number" && covPct > 0)
+      ok(ui.cov, covPct.toFixed(1) + "%");
+    else if(typeof covArea === "number")
+      ok(ui.cov, covArea.toFixed(1) + " m2");
+    else na(ui.cov, "no truth");
+
+    const reads = f[r.sonar];
+    for(const k of ["fwd","left","right"]){
+      const v = reads ? reads[k] : undefined;
+      const el = ui.son[k];
+      if(typeof v !== "number"){ el.textContent = "--"; el.style.color = "var(--fg-3)"; }
+      else if(v < 0){ el.textContent = "no echo"; el.style.color = "var(--fg-3)"; }
+      else {
+        el.textContent = v.toFixed(2) + " m";
+        el.style.color = v <= STOP_DIST_M ? "var(--bad)"
+                       : v <= SLOW_DIST_M ? "var(--warn)" : "var(--ok)";
+      }
+    }
+    drawSonarWidget(ui, reads);
+  }
+
+  const stg = f.stg_name || f.stg;
+  if(lastStg !== null && stg !== lastStg){
+    const fl=$("flash"); fl.classList.remove("go"); void fl.offsetWidth; fl.classList.add("go");
+  }
+  lastStg = stg;
+  $("scrub").value = cur;
+  warnDropped();
+}
+
+/* ---------- drawing ---------- */
+function render(){
+  const f = FR[cur];
+  cx.setTransform(1,0,0,1,0,0);
+  cx.clearRect(0,0,cv.width,cv.height);
+  cx.imageSmoothingEnabled = false;
+  if(!f) return;
+  camSync();
+
+  const G = groundMatrix();
+  const blit = (src, x0, y0, res) => {
+    cx.save();
+    cx.setTransform(G[0],G[1],G[2],G[3],G[4],G[5]);
+    cx.transform(res,0,0,res,x0,y0);
+    cx.drawImage(src,0,0);
+    cx.restore();
+  };
+
+  if(cam.mode === "3d") drawFloorPlate();
+  if(show.truth && TRUTH) blit(TRUTH, AX0, AY0, RES);
+  if(show.ga) blit(LA.c, AX0, AY0, RES);
+  if(show.gb && LB && f.T){
+    const tx=f.T[0], ty=f.T[1], ct=Math.cos(f.T[2]), st=Math.sin(f.T[2]);
+    cx.save();
+    cx.setTransform(G[0],G[1],G[2],G[3],G[4],G[5]);
+    cx.transform(ct,st,-st,ct,tx,ty);
+    cx.transform(RES,0,0,RES,BX0,BY0);
+    cx.drawImage(LB.c,0,0);
+    cx.restore();
+  }
+  cx.setTransform(1,0,0,1,0,0);
+
+  if(show.zones && !SOLO && f.stg >= 3){
+    if(REG) drawRegions(G); else if(f.split) drawZones(f.split);
+  }
+  if(!SOLO && f.stg === 1 && f.a && f.b) drawMarkerBeam(f.a, f.b);
+  if(show.barrier && !SOLO && f.split && f.stg >= 3) drawHardBarrier(f.split);
+
+  if(show.sonars){
+    if(f.sba && f.a) drawSonars(f.a, f.sba, RGB_A);
+    if(!SOLO && f.sbb && f.b) drawSonars(f.b, f.sbb, RGB_B);
+  }
+  if(show.trail){
+    drawTrail(trailA, COL_A);
+    if(!SOLO) drawTrail(trailB, COL_B);
+  }
+  if(cam.mode === "3d" && show.walls) drawWalls();
+  if(show.front){ drawFrontiers(f.fa); if(!SOLO) drawFrontiers(f.fb); }
+  if(show.tgt){
+    if(f.tga) drawTarget(f.tga, COL_A);
+    if(!SOLO && f.tgb) drawTarget(f.tgb, COL_B);
+  }
+  if(f.a) drawRover(f.a, COL_A, SOLO ? "" : "A");
+  if(!SOLO && f.b) drawRover(f.b, COL_B, "B");
+  drawScale();
+}
+
+function drawFloorPlate(){
+  const wm = VWM, hm = VHM;
+  cx.save();
+  cx.beginPath();
+  pj(VX0,VY0,0);       cx.moveTo(_sx,_sy);
+  pj(VX0+wm,VY0,0);    cx.lineTo(_sx,_sy);
+  pj(VX0+wm,VY0+hm,0); cx.lineTo(_sx,_sy);
+  pj(VX0,VY0+hm,0);    cx.lineTo(_sx,_sy);
+  cx.closePath();
+  cx.fillStyle = "rgba(24,24,29,.9)"; cx.fill();
+  cx.strokeStyle = "rgba(42,42,50,.95)"; cx.lineWidth = 1*DPR; cx.stroke();
+  cx.restore();
+}
+
+/* ---------- 3D walls ----------
+ * Occupied cells are merged into horizontal runs per grid row, so a straight
+ * wall becomes one quad instead of a hundred. Runs are chunked before sorting
+ * because one depth per quad only holds if the quads are short enough for that
+ * to be true. Faces abutting more wall are culled: without that a wall two
+ * cells thick draws its own insides, and every chunk join rules a seam across
+ * the top.
+ */
+const RUN_CHUNK = 14;
+function wallRuns(L, x0, y0, T, out, isB){
+  const ct = Math.cos(T[2]), st = Math.sin(T[2]), tx = T[0], ty = T[1];
+  const w=L.w, h=L.h, lv=L.lvl;
+  const occ = (rr,cc) => {
+    if(rr<0 || rr>=h || cc<0 || cc>=w) return false;
+    const q = lv[rr*w+cc];
+    return q >= OCC_MIN && q < LV;
+  };
+  for(let r=0;r<h;r++){
+    const row = r*w;
+    let c=0;
+    while(c<w){
+      const v = lv[row+c];
+      if(v >= OCC_MIN && v < LV){
+        let c2=c;
+        while(c2+1<w){ const nx=lv[row+c2+1]; if(nx>=OCC_MIN && nx<LV) c2++; else break; }
+        for(let s=c; s<=c2; s+=RUN_CHUNK){
+          const e = Math.min(c2, s+RUN_CHUNK-1);
+          const gx = x0 + s*RES, gy = y0 + r*RES, len = (e-s+1)*RES;
+          const mid = (s+e)>>1;
+          let faces = 0;
+          if(!occ(r-1, mid)) faces |= 1;
+          if(!occ(r+1, mid)) faces |= 2;
+          if(e === c2)       faces |= 4;
+          if(s === c)        faces |= 8;
+          const ox = tx + ct*gx - st*gy, oy = ty + st*gx + ct*gy;
+          out.push([ox, oy, ct*len, st*len, -st*RES, ct*RES, ct, st,
+                    depth(ox + (ct*len - st*RES)/2, oy + (st*len + ct*RES)/2),
+                    isB, faces]);
+        }
+        c=c2+1;
+      } else c++;
+    }
+  }
+}
+function quad(x1,y1,z1,x2,y2,z2,x3,y3,z3,x4,y4,z4,fill){
+  cx.beginPath();
+  pj(x1,y1,z1); cx.moveTo(_sx,_sy);
+  pj(x2,y2,z2); cx.lineTo(_sx,_sy);
+  pj(x3,y3,z3); cx.lineTo(_sx,_sy);
+  pj(x4,y4,z4); cx.lineTo(_sx,_sy);
+  cx.closePath();
+  cx.fillStyle = fill; cx.fill();
+}
+function drawWalls(){
+  const f = FR[cur]; if(!f) return;
+  const runs = [];
+  if(show.ga) wallRuns(LA, AX0, AY0, [0,0,0], runs, false);
+  if(show.gb && LB && f.T) wallRuns(LB, BX0, BY0, f.T, runs, true);
+  /* One sorted list across both grids: sorting them separately would draw all
+     of B's walls in front of all of A's wherever the two maps overlap. */
+  runs.sort((p,q) => q[8] - p[8]);
+  const cA = wallCols(RGB_A), cB = wallCols(RGB_B);
+  cx.save();
+  for(const r of runs){
+    const ox=r[0], oy=r[1], ux=r[2], uy=r[3], vx=r[4], vy=r[5], ct=r[6], st=r[7];
+    const col = r[9] ? cB : cA, faces = r[10];
+    /* A face is visible when its outward normal points back toward the camera.
+       The view axis is the direction of increasing depth, (-SA, CA), so the test
+       is n . (SA, -CA) > 0 with n rotated into A's frame. */
+    const longDot = st*SA + ct*CA, shortDot = ct*SA - st*CA;
+    const ax=ox, ay=oy, bx=ox+ux, by=oy+uy;
+    const dx=ox+vx, dy=oy+vy, ex=ox+ux+vx, ey=oy+uy+vy;
+    if(longDot > 0){ if(faces & 1) quad(ax,ay,0, bx,by,0, bx,by,WALL_H, ax,ay,WALL_H, col.s1); }
+    else           { if(faces & 2) quad(dx,dy,0, ex,ey,0, ex,ey,WALL_H, dx,dy,WALL_H, col.s1); }
+    if(shortDot > 0){ if(faces & 4) quad(bx,by,0, ex,ey,0, ex,ey,WALL_H, bx,by,WALL_H, col.s2); }
+    else            { if(faces & 8) quad(ax,ay,0, dx,dy,0, dx,dy,WALL_H, ax,ay,WALL_H, col.s2); }
+    quad(ax,ay,WALL_H, bx,by,WALL_H, ex,ey,WALL_H, dx,dy,WALL_H, col.top);
+  }
+  cx.restore();
+}
+
+/* ---------- ground overlays ---------- */
+const MONO = '"IBM Plex Mono",ui-monospace,monospace';
+function drawSonars(pose, beams, rgb){
+  if(!beams) return;
+  pj(pose[0], pose[1], 0);
+  const rx=_sx, ry=_sy, halfCone = 0.13;
+  const fill = "rgba(" + rgb.join(",") + ",0.13)";
+  const line = "rgba(" + rgb.join(",") + ",0.55)";
+  cx.save();
+  for(const name in beams){
+    const ep = beams[name];
+    const d = Math.hypot(ep[0]-pose[0], ep[1]-pose[1]);
+    if(d < 0.02) continue;
+    const ang = Math.atan2(ep[1]-pose[1], ep[0]-pose[0]);
+    /* Sampled in world space, not as a canvas arc: under an oblique camera the
+       cone is an ellipse, and cx.arc would draw a circle that no longer lands
+       on the wall the sonar actually hit. */
+    const N = 9;
+    cx.beginPath(); cx.moveTo(rx, ry);
+    for(let i=0;i<=N;i++){
+      const a = ang - halfCone + (2*halfCone)*i/N;
+      pj(pose[0]+Math.cos(a)*d, pose[1]+Math.sin(a)*d, 0);
+      cx.lineTo(_sx,_sy);
+    }
+    cx.closePath();
+    cx.fillStyle = fill; cx.fill();
+    cx.strokeStyle = line; cx.lineWidth = 1.1*DPR; cx.stroke();
+  }
+  cx.restore();
+}
+function drawMarkerBeam(pa, pb){
+  pj(pa[0],pa[1],0); const ax=_sx, ay=_sy;
+  pj(pb[0],pb[1],0); const bx=_sx, by=_sy;
+  cx.save();
+  cx.setLineDash([4,4]);
+  cx.strokeStyle = "rgba(74,222,128,.8)"; cx.lineWidth = 1.6*DPR;
+  cx.beginPath(); cx.moveTo(ax,ay); cx.lineTo(bx,by); cx.stroke();
+  cx.restore();
+}
+let REG = null;
+function buildRegions(f){
+  if(!f.regA || !f.regW) return;
+  const w = f.regW[0], h = f.regW[1];
+  const mk = (b64, rgb) => {
+    const raw = atob(b64), c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d"), im = ctx.createImageData(w,h), d = im.data;
+    for(let i=0;i<w*h;i++){
+      if((raw.charCodeAt(i>>3) >> (7-(i&7))) & 1){
+        d[i*4]=rgb[0]; d[i*4+1]=rgb[1]; d[i*4+2]=rgb[2]; d[i*4+3]=30;
+      }
+    }
+    ctx.putImageData(im,0,0); return c;
+  };
+  REG = {a: mk(f.regA,RGB_TWO_A), b: mk(f.regB,RGB_TWO_B), w:w, h:h};
+}
+function drawRegions(G){
+  if(!REG) return;
+  cx.save();
+  cx.imageSmoothingEnabled = false;
+  cx.setTransform(G[0],G[1],G[2],G[3],G[4],G[5]);
+  cx.transform(RES,0,0,RES,AX0,AY0);
+  cx.drawImage(REG.a,0,0); cx.drawImage(REG.b,0,0);
+  cx.restore();
+  cx.setTransform(1,0,0,1,0,0);
+}
+function drawZones(s){
+  const mx=s[0], my=s[1], nx=s[2], ny=s[3], L=80;
+  const poly = (sign, fill) => {
+    cx.beginPath();
+    pj(mx-ny*L, my+nx*L, 0);                     cx.moveTo(_sx,_sy);
+    pj(mx+ny*L, my-nx*L, 0);                     cx.lineTo(_sx,_sy);
+    pj(mx+ny*L+sign*nx*L, my-nx*L+sign*ny*L, 0); cx.lineTo(_sx,_sy);
+    pj(mx-ny*L+sign*nx*L, my+nx*L+sign*ny*L, 0); cx.lineTo(_sx,_sy);
+    cx.closePath(); cx.fillStyle = fill; cx.fill();
+  };
+  cx.save();
+  poly(-1, "rgba(255,181,69,.03)");
+  poly( 1, "rgba(52,224,212,.03)");
+  cx.restore();
+}
+function drawHardBarrier(s){
+  const mx=s[0], my=s[1], nx=s[2], ny=s[3], L=60;
+  cx.save();
+  cx.setLineDash([6,6]);
+  cx.beginPath();
+  pj(mx-ny*L, my+nx*L, 0); cx.moveTo(_sx,_sy);
+  pj(mx+ny*L, my-nx*L, 0); cx.lineTo(_sx,_sy);
+  cx.strokeStyle="rgba(8,8,10,.7)"; cx.lineWidth=3.4*DPR; cx.stroke();
+  cx.strokeStyle="rgba(242,242,244,.55)"; cx.lineWidth=1.5*DPR; cx.stroke();
+  cx.restore();
+}
+function drawTrail(pts,col){
+  if(pts.length<2) return;
+  cx.save(); cx.lineJoin="round"; cx.lineCap="round";
+  cx.beginPath();
+  pj(pts[0][0],pts[0][1],0); cx.moveTo(_sx,_sy);
+  for(let i=1;i<pts.length;i++){ pj(pts[i][0],pts[i][1],0); cx.lineTo(_sx,_sy); }
+  cx.strokeStyle="rgba(8,8,10,.6)"; cx.lineWidth=3.2*DPR; cx.stroke();
+  cx.strokeStyle=col; cx.lineWidth=1.4*DPR; cx.stroke();
+  cx.restore();
+}
+function drawFrontiers(list){
+  if(!list || !list.length) return;
+  cx.save();
+  cx.strokeStyle="rgba(8,8,10,.7)"; cx.lineWidth=1.4*DPR;
+  cx.fillStyle="#f43f5e";
+  for(const fr of list){
+    const r = Math.max(2.2, Math.min(6, Math.sqrt(fr[2]||4)*0.5))*DPR;
+    pj(fr[0],fr[1],0);
+    cx.beginPath(); cx.arc(_sx,_sy,r,0,6.2832); cx.stroke(); cx.fill();
+  }
+  cx.restore();
+}
+function drawTarget(t,col){
+  pj(t[0],t[1],0);
+  const x=_sx, y=_sy, r=8*DPR;
+  cx.save(); cx.strokeStyle=col; cx.lineWidth=1.3*DPR; cx.globalAlpha=.9;
+  cx.beginPath(); cx.arc(x,y,r,0,6.2832); cx.stroke();
+  cx.beginPath();
+  cx.moveTo(x-r-4*DPR,y); cx.lineTo(x-r+2*DPR,y);
+  cx.moveTo(x+r-2*DPR,y); cx.lineTo(x+r+4*DPR,y);
+  cx.moveTo(x,y-r-4*DPR); cx.lineTo(x,y-r+2*DPR);
+  cx.moveTo(x,y+r-2*DPR); cx.lineTo(x,y+r+4*DPR);
+  cx.stroke(); cx.restore();
+}
+function drawRover(p,col,label){
+  /* In 3D the marker sits on a short mast. Without it the rover disappears
+     behind any wall between it and the camera, which is exactly when an
+     operator most wants to see where the machine is. */
+  const lift = cam.mode === "3d" ? 0.34 : 0;
+  pj(p[0],p[1],0);    const gx=_sx, gy=_sy;
+  pj(p[0],p[1],lift); const x=_sx,  y=_sy;
+  if(lift){
+    cx.save();
+    cx.strokeStyle="rgba(8,8,10,.65)"; cx.lineWidth=3*DPR;
+    cx.beginPath(); cx.moveTo(gx,gy); cx.lineTo(x,y); cx.stroke();
+    cx.strokeStyle=col; cx.lineWidth=1.2*DPR;
+    cx.beginPath(); cx.moveTo(gx,gy); cx.lineTo(x,y); cx.stroke();
+    cx.globalAlpha=.5; cx.fillStyle=col;
+    cx.beginPath(); cx.arc(gx,gy,2.4*DPR,0,6.2832); cx.fill();
+    cx.restore();
+  }
+  /* Heading via a point one nose-length ahead, projected, rather than rotating
+     the glyph by p[2] in screen space - which would point the wrong way as soon
+     as the camera turned. */
+  const s = 10*DPR, nose = 0.22;
+  pj(p[0]+Math.cos(p[2])*nose, p[1]+Math.sin(p[2])*nose, lift);
+  const ang = Math.atan2(_sy-y, _sx-x);
+  cx.save(); cx.translate(x,y); cx.rotate(ang);
+  cx.beginPath();
+  cx.moveTo(s,0); cx.lineTo(-s*0.62,s*0.66); cx.lineTo(-s*0.28,0); cx.lineTo(-s*0.62,-s*0.66);
+  cx.closePath();
+  cx.fillStyle=col; cx.strokeStyle="#08080a"; cx.lineWidth=2.2*DPR; cx.lineJoin="round";
+  cx.stroke(); cx.fill();
+  cx.restore();
+  if(!label) return;
+  cx.save();
+  cx.font="600 " + (10.5*DPR) + "px " + MONO;
+  cx.lineWidth=3*DPR; cx.strokeStyle="#08080a"; cx.lineJoin="round";
+  cx.strokeText(label, x+12*DPR, y-10*DPR);
+  cx.fillStyle=col; cx.fillText(label, x+12*DPR, y-10*DPR);
+  cx.restore();
+}
+function drawScale(){
+  /* Along the projected world x axis, not flat across the screen: under an
+     oblique camera a horizontal bar is not one metre of floor. Axonometric
+     keeps axis scale constant, so this stays true as the camera orbits. */
+  const x0 = VX0 + 0.35, y0 = VY0 + 0.35;
+  pj(x0,y0,0);   const ax=_sx, ay=_sy;
+  pj(x0+1,y0,0); const bx=_sx, by=_sy;
+  const nx = -(by-ay), ny = (bx-ax), nl = Math.hypot(nx,ny) || 1;
+  const tx = nx/nl*4*DPR, ty = ny/nl*4*DPR;
+  cx.save();
+  cx.strokeStyle="rgba(242,242,244,.42)"; cx.lineWidth=1*DPR;
+  cx.beginPath();
+  cx.moveTo(ax+tx,ay+ty); cx.lineTo(ax,ay); cx.lineTo(bx,by); cx.lineTo(bx+tx,by+ty);
+  cx.stroke();
+  cx.fillStyle="rgba(242,242,244,.5)";
+  cx.font=(9.5*DPR) + "px " + MONO;
+  cx.fillText("1 m", bx+6*DPR, by+3*DPR);
+  cx.restore();
+}
+
+function paintHud(){
+  $("hud").innerHTML = "<b>" + (cam.mode === "3d" ? "3D axonometric" : "2D top-down")
+    + (autoFit ? " &middot; auto-framed" : " &middot; manual") + "</b><br>"
+    + (cam.mode === "3d" ? "drag orbit" : "drag pan")
+    + " &middot; wheel zoom &middot; R re-frame &middot; V toggle";
+}
+
+/* ---------- loops ----------
+ *
+ * TWO of them, and the split matters.
+ *
+ * requestAnimationFrame stops entirely in a background tab -- not throttled,
+ * stopped. Driving the clock, the staleness test and the panel refresh from it
+ * meant that backgrounding the tab froze all three while the retry timers went
+ * on painting the header: the page could sit there reading LIVE with nothing
+ * arriving, which is the exact dishonesty this display exists to avoid. Found by
+ * killing the station with the pane out of focus, where rAF fired 0 times in
+ * 1.5 s.
+ *
+ * So: rAF advances PLAYBACK and nothing else, because there is no point drawing
+ * a canvas nobody can see. Everything that makes a claim about the link runs on
+ * a setInterval, which browsers throttle in the background but never stop.
+ */
+function tick(ts){
+  if(playing){
+    if(!lastTs) lastTs=ts;
+    acc += (ts-lastTs)/1000*speed; lastTs=ts;
+    const step = META.dt || 0.4;
+    while(acc >= step){
+      acc -= step;
+      if(cur>=FR.length-1){ playing=false; $("play").textContent="replay"; break; }
+      goto(cur+1);
+    }
+  } else lastTs=0;
+  requestAnimationFrame(tick);
+}
+
+/* Wall time, not frame time: a stream that has stopped delivering produces no
+   frames to drive a timer with, which is exactly when the number has to move. */
+function uiTick(){
+  const now = performance.now();
+  $("sess").textContent = fmtClock(sessT0 ? (now - sessT0)/1000 : 0);
+  if(CONN.state === "live" && CONN.lastAt && now - CONN.lastAt > STALE_MS)
+    CONN.state = "stale";
+  paintLink();
+  updatePanels();
+}
+setInterval(uiTick, 250);
+
+/* Coming back to the tab, redraw at once rather than waiting for a frame. */
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden){ fit(); render(); }
+});
+
+const _render = render;
+render = function(){ _render(); updatePanels(); };
+
+/* ---------- controls ---------- */
+$("play").onclick = ()=>{
+  if(cur>=FR.length-1) goto(0);
+  playing=!playing; lastTs=0;
+  $("play").textContent = playing?"pause":"play";
+};
+$("step").onclick = ()=>{ playing=false; $("play").textContent="play"; goto(cur+1); };
+$("scrub").oninput = e => goto(+e.target.value);
+$("speed").onchange = e => speed = +e.target.value;
+
+$("layers").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const on = b.getAttribute("aria-pressed")!=="true";
+  b.setAttribute("aria-pressed", on); show[b.dataset.l]=on; render();
+});
+$("swatches").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  applyTheme(b.dataset.t);
+  if(SOLO){ buildPalettes(); recolour(); }
+  render();
+});
+
+function setMode(mode){
+  cam.mode = mode;
+  if(mode === "3d"){ cam.yaw = CAM3.yaw; cam.pitch = CAM3.pitch; showLayer("walls"); }
+  else { cam.yaw = 0; cam.pitch = 0; hideLayer("walls"); }
+  cam.zoom = 1; cam.panx = 0; cam.pany = 0;
+  autoFit = true; fittedExt = null;      // R and the 2D/3D toggle re-frame
+  for(const b of $("viewseg").querySelectorAll("button"))
+    b.setAttribute("aria-pressed", String(b.dataset.v === mode));
+  paintHud(); fit(); render();
+}
+$("viewseg").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(b) setMode(b.dataset.v);
+});
+
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  drag = {x:e.clientX, y:e.clientY, yaw:cam.yaw, pitch:cam.pitch, px:cam.panx, py:cam.pany};
+  cv.classList.add("dragging");
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", e => {
+  if(!drag) return;
+  const dx = e.clientX-drag.x, dy = e.clientY-drag.y;
+  if(autoFit){ autoFit = false; paintHud(); }   // the operator is framing now
+  if(cam.mode === "3d"){
+    cam.yaw = drag.yaw + dx*0.008;
+    // clamped short of flat and short of straight down: both degenerate
+    cam.pitch = Math.max(0.12, Math.min(1.40, drag.pitch + dy*0.006));
+  } else {
+    cam.panx = drag.px - dx/S*DPR;
+    cam.pany = drag.py + dy/S*DPR;
+  }
+  fit(); render();
+});
+const endDrag = () => { drag = null; cv.classList.remove("dragging"); };
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  if(autoFit){ autoFit = false; paintHud(); }
+  cam.zoom = Math.max(0.4, Math.min(6, cam.zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+  fit(); render();
+}, {passive:false});
+
+addEventListener("keydown", e=>{
+  if(e.target.matches("input,select,button") && e.key!==" ") return;
+  if(e.key===" "){ e.preventDefault(); $("play").click(); }
+  if(e.key==="ArrowRight"){ playing=false; $("play").textContent="play"; goto(cur+1); }
+  if(e.key==="ArrowLeft"){ playing=false; $("play").textContent="play"; goto(cur-1); }
+  if(e.key==="r"||e.key==="R") setMode(cam.mode);
+  if(e.key==="v"||e.key==="V") setMode(cam.mode === "3d" ? "2d" : "3d");
+});
+addEventListener("resize", ()=>{ fit(); render(); });
+
+hideLayer("walls");
+$("scrub").max = Math.max(0, FR.length-1);
+paintHud();
+fit();
+if(FR.length){                 // a live run has nothing to seek into yet
+  resetTo(0);
+  sessT0 = performance.now();
+}
+render();
+requestAnimationFrame(tick);
+
+if(live){ $("play").textContent = "live"; openStream(); }
+else { CONN.state = "replay"; paintLink(); }
+}
+
+/* Ask the server first, fall back to the file. The other order would need the
+ * server to hide or rename recording.js to get a live run onto the screen, and a
+ * tool that moves the operator's files to make its own output win is a tool
+ * nobody trusts twice. /meta 404s instantly in replay mode.
+ *
+ * The fallback is a rejection handler, not a .catch: catching exceptions out of
+ * start() as well as a missing /meta turned any renderer bug into "nothing to
+ * show", which sends you looking for a file instead of a stack trace.
+ */
+fetch("/meta")
+  .then(r => r.ok ? r.json() : Promise.reject(new Error("no live run")))
+  .then(
+    meta => start({meta: meta, frames: []}, true),
+    () => {
+      if(window.RECORDING) start(window.RECORDING, false);
+      else $("missing").style.display = "grid";
+    }
+  )
+  .catch(err => console.error("viewer: renderer failed to start -", err));
+})();
+</script>
+</body>
+</html>

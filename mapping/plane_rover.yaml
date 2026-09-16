@@ -1,0 +1,14 @@
+# MEASURED, not fitted. Height from a tape measure (floor to lens centre);
+# tilt from a 1-D search with the height held fixed, cross-checked by the
+# horizon landing at image row 316 of 600 (below centre => pitched up).
+# Do NOT let the stereo RANSAC overwrite this: on this dark polished floor it
+# wandered over 0.179-0.227 m and once produced a plainly wrong 31.9 deg.
+normal:
+- 0.0
+- -0.999391
+- 0.034899
+height_m: 0.152
+tilt_deg: 2.0
+inliers: 19832
+flatness_mm: 0.0
+support_pct: 0.0

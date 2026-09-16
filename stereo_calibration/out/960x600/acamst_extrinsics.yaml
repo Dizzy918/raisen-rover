@@ -1,0 +1,39 @@
+# AR0234 stereo extrinsics — relative pose of ar0234_right_optical
+# in ar0234_left_optical frame. R, T from cv2.stereoCalibrateExtended.
+# Read by arducam_camera.launch.py to publish the static TF.
+profile: 1920x600
+parent_frame: ar0234_left_optical
+child_frame: ar0234_right_optical
+rotation:
+  rows: 3
+  cols: 3
+  data:
+  - 0.9999960282693995
+  - 0.0008197745969557839
+  - 0.0026965561437642025
+  - -0.000830814653273239
+  - 0.9999912680184047
+  - 0.004095562715303455
+  - -0.002693175159211326
+  - -0.004097786787189314
+  - 0.9999879774032328
+translation:
+  rows: 3
+  cols: 1
+  data:
+  - -0.14888841686586138
+  - -0.0013174201395345032
+  - -0.0024459902787419582
+baseline_mm: 148.9143
+rotation_xyz_deg:
+- -0.2347
+- 0.1544
+- -0.0473
+rms_px: 0.29667
+view_count: 29
+checkerboard:
+  rows: 6
+  cols: 9
+  square_m: 0.0256
+source_images: captures/final
+generated: 2026-08-12 08:51:07 UTC

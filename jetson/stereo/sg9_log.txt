@@ -1,0 +1,19 @@
+streaming 3840x1200 -> 960x600/eye, exp=8000 gain=300. goal 10, 300s.
+Accept gate = PLAIN detection in BOTH eyes, exactly what MATLAB does.
+Keep bright windows BEHIND the cameras. Corners, tilt 20-40deg, vary near/far, hold ~1s.
+KEPT  1/10 cell=BC fill=22% PLAIN-OK (4s) cells 1/9: BC
+KEPT  2/10 cell=BC fill=20% PLAIN-OK (6s) cells 1/9: BC
+KEPT  3/10 cell=MC fill=23% PLAIN-OK (14s) cells 2/9: BC MC
+KEPT  4/10 cell=BC fill=23% PLAIN-OK (14s) cells 2/9: BC MC
+KEPT  5/10 cell=TL fill=24% PLAIN-OK (63s) cells 3/9: BC MC TL
+KEPT  6/10 cell=TL fill=26% PLAIN-OK (87s) cells 3/9: BC MC TL
+KEPT  7/10 cell=TL fill=27% PLAIN-OK (88s) cells 3/9: BC MC TL
+KEPT  8/10 cell=TC fill=32% PLAIN-OK (89s) cells 4/9: BC MC TC TL
+KEPT  9/10 cell=TC fill=33% PLAIN-OK (90s) cells 4/9: BC MC TC TL
+KEPT 10/10 cell=TC fill=35% PLAIN-OK (91s) cells 4/9: BC MC TC TL
+
+DONE: 10/10 in 91s | no-board=230 low-contrast=3 blur=0
+cells 4/9: BC MC TC TL
+cells MISSED: BL BR ML MR TR
+fill 20%-35%
+vision restarted.

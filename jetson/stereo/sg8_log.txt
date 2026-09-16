@@ -1,0 +1,31 @@
+streaming 3840x1200 -> 960x600/eye, exp=8000 gain=300. goal 22, 480s.
+Accept gate = PLAIN detection in BOTH eyes, exactly what MATLAB does.
+Keep bright windows BEHIND the cameras. Corners, tilt 20-40deg, vary near/far, hold ~1s.
+KEPT  1/22 cell=TC fill=23% PLAIN-OK (3s) cells 1/9: TC
+KEPT  2/22 cell=TC fill=24% PLAIN-OK (5s) cells 1/9: TC
+KEPT  3/22 cell=MC fill=22% PLAIN-OK (18s) cells 2/9: MC TC
+KEPT  4/22 cell=MC fill=21% PLAIN-OK (21s) cells 2/9: MC TC
+KEPT  5/22 cell=MC fill=22% PLAIN-OK (21s) cells 2/9: MC TC
+KEPT  6/22 cell=TR fill=20% PLAIN-OK (32s) cells 3/9: MC TC TR
+KEPT  7/22 cell=BR fill=19% PLAIN-OK (34s) cells 4/9: BR MC TC TR
+KEPT  8/22 cell=BR fill=18% PLAIN-OK (34s) cells 4/9: BR MC TC TR
+KEPT  9/22 cell=ML fill=17% PLAIN-OK (37s) cells 5/9: BR MC ML TC TR
+KEPT 10/22 cell=BL fill=13% PLAIN-OK (38s) cells 6/9: BL BR MC ML TC TR
+KEPT 11/22 cell=BR fill=13% PLAIN-OK (50s) cells 6/9: BL BR MC ML TC TR
+KEPT 12/22 cell=TR fill=14% PLAIN-OK (55s) cells 6/9: BL BR MC ML TC TR
+KEPT 13/22 cell=TR fill=14% PLAIN-OK (57s) cells 6/9: BL BR MC ML TC TR
+KEPT 14/22 cell=TC fill=14% PLAIN-OK (59s) cells 6/9: BL BR MC ML TC TR
+KEPT 15/22 cell=TR fill=38% PLAIN-OK (63s) cells 6/9: BL BR MC ML TC TR
+KEPT 16/22 cell=TL fill=21% PLAIN-OK (72s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 17/22 cell=TL fill=20% PLAIN-OK (73s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 18/22 cell=TL fill=20% PLAIN-OK (75s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 19/22 cell=TR fill=22% PLAIN-OK (79s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 20/22 cell=MC fill=16% PLAIN-OK (81s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 21/22 cell=MC fill=14% PLAIN-OK (83s) cells 7/9: BL BR MC ML TC TL TR
+KEPT 22/22 cell=ML fill=16% PLAIN-OK (86s) cells 7/9: BL BR MC ML TC TL TR
+
+DONE: 22/22 in 86s | no-board=149 low-contrast=4 blur=0
+cells 7/9: BL BR MC ML TC TL TR
+cells MISSED: BC MR
+fill 13%-38%
+vision restarted.

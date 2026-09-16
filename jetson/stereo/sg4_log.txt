@@ -1,0 +1,4 @@
+streaming, exposure=8000. goal 31 pairs, 300s. Move the board through poses.
+stop requested.
+DONE: kept 19/31 in 128s (reads=744 checks=371 both-eyes-hits=0). cells: 
+vision restarted.

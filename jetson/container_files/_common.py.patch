@@ -1,0 +1,31 @@
+--- upstream/_common.py	2026-08-12 10:35:21
++++ patched/_common.py	2026-08-12 10:36:09
+@@ -146,7 +146,27 @@
+                 ('preview/compressed', '/vision/image_small/compressed'),
+             ],
+         )
+-        nodes = [capture, debayer]
++        # LOCAL FIX (jetson9, 2026-08-11): second debayer for the RIGHT eye.
++        # Upstream debayers the left eye only, because the detector is monocular.
++        # The capture node already splits and publishes ar0234/right/image_raw as
++        # raw bayer16, but nothing converted it, so /right/image_raw did not exist
++        # and no stereo consumer (calibration capture, SGBM depth) could subscribe.
++        # Mirrors the left node exactly; no preview remap (one /vision/image_small
++        # publisher only, or the encoder sees two writers on the same topic).
++        debayer_right = ComposableNode(
++            name='ar0234_right_debayer',
++            package='narsil_ar0234_camera',
++            plugin='narsil_ar0234_camera::GpuDebayerNode',
++            namespace='ar0234',
++            parameters=[safe_params({
++                'conformance_check': env_truthy('NARSIL_AR0234_CONFORMANCE'),
++            })],
++            remappings=[
++                ('image_raw', 'right/image_raw'),
++                ('image_color', '/right/image_raw'),
++            ],
++        )
++        nodes = [capture, debayer, debayer_right]
+         if env_truthy('NARSIL_FLOW_ODOMETRY'):
+             # NARSIL_FLOW_STATIC_ATTITUDE=1 (twin env, FC-less bench rigs):
+             # identity derotation — see flow_odometry.yaml.

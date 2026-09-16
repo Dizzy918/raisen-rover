@@ -1,0 +1,94 @@
+#!/bin/bash
+# arducam-recover -- put the Arducam stereo camera back after the two failures
+# that keep recurring on these Jetsons. Both are SILENT, which is what makes
+# them expensive: neither logs an error where anyone would look.
+#
+# 1. THE PATCHED MODULE GETS REVERTED.
+#    arducam-nvidia-l4t-kernel's postinst moves its tegra-camera.ko into a
+#    hardcoded /lib/modules/5.15.148-tegra/ while these boxes run
+#    5.15.185-tegra. There is no set -e, so dpkg reports success and the STOCK
+#    module stays loaded. The camera then enumerates perfectly -- /dev/video0
+#    present, refcount 1, clean probe in dmesg -- and never delivers a frame.
+#    That combination invites every wrong diagnosis there is; on jetson11 it
+#    cost a lane-count theory, a driver reinstall and a hardware reseat scare
+#    before anyone looked at the module. Fixing the FILE needs a reboot to take
+#    effect, because tegra_camera cannot be unloaded while the VI holds it.
+#
+# 2. THE PROBE LOSES A RACE.
+#    arducam_csi2 probes once, about 7.8 s after boot, and gives up. A HAT
+#    powered up late leaves the driver loaded with refcount 0 and no
+#    /dev/video0, dmesg showing "Reading register 0x103 failed / probe failed"
+#    while i2cdetect still answers 0x0c. A module cycle fixes it, no reboot.
+#    This is what took jetson9's camera down on 2026-08-19.
+#
+# Idempotent: does nothing when the camera already works.
+#   exit 0  camera working
+#   exit 2  repaired, but a REBOOT is required for it to take effect
+#   exit 1  still broken; the cause is not one of the two above
+usage() { echo "usage: $0 [--boot] [--quiet] [--module-only]"; exit 1; }
+
+BOOT=0; QUIET=0; MODONLY=0
+for a in "$@"; do
+  case "$a" in
+    --boot) BOOT=1 ;;
+    --quiet) QUIET=1 ;;
+    # For the apt hook: repair the module FILE but never cycle the driver, which
+    # would be an unwelcome surprise in the middle of a dpkg run.
+    --module-only) MODONLY=1 ;;
+    *) usage ;;
+  esac
+done
+say() { [ "$QUIET" = 1 ] || echo "arducam-recover: $*"; }
+
+KREL=$(uname -r)
+DST=/lib/modules/$KREL/updates/drivers/media/platform/tegra/camera/tegra-camera.ko
+SRC=/boot/arducam/tegra-camera.ko
+NEED_REBOOT=0
+
+# --- failure 1: the patched module ------------------------------------------
+if [ -f "$SRC" ] && [ -f "$DST" ]; then
+  # Only swap in a module built for the RUNNING kernel. The whole bug is a
+  # kernel-version mismatch, so checking vermagic is not optional.
+  VM=$(modinfo -F vermagic "$SRC" 2>/dev/null | awk '{print $1}')
+  if [ "$VM" != "$KREL" ]; then
+    say "WARNING $SRC has vermagic '$VM', not '$KREL' -- leaving it alone."
+  elif [ "$(md5sum <"$SRC" | cut -d' ' -f1)" != "$(md5sum <"$DST" | cut -d' ' -f1)" ]; then
+    say "the stock tegra-camera.ko is installed; restoring the Arducam one."
+    [ -f "$DST.stock-backup" ] || cp -a "$DST" "$DST.stock-backup"
+    cp "$SRC" "$DST" && depmod -a && NEED_REBOOT=1
+    say "restored. A REBOOT is required: tegra_camera cannot be reloaded live."
+  fi
+fi
+
+if [ "$MODONLY" = 1 ]; then
+  [ "$NEED_REBOOT" = 1 ] && exit 2
+  exit 0
+fi
+
+# --- failure 2: the probe race ----------------------------------------------
+# At boot, wait past the driver's own single probe attempt before judging it.
+[ "$BOOT" = 1 ] && sleep 20
+
+if [ ! -e /dev/video0 ]; then
+  if lsmod | grep -q '^arducam_csi2'; then
+    say "no /dev/video0 but arducam_csi2 is loaded -- cycling it."
+    modprobe -r arducam_csi2 2>/dev/null || say "could not unload (in use?)"
+    sleep 2
+    modprobe arducam_csi2
+  else
+    say "arducam_csi2 not loaded -- loading it."
+    modprobe arducam_csi2
+  fi
+  sleep 5
+fi
+
+# --- verdict ----------------------------------------------------------------
+if [ -e /dev/video0 ]; then
+  RC=$(sed -n 's/^arducam_csi2 *[0-9]* *\([0-9]*\).*/\1/p' /proc/modules 2>/dev/null)
+  say "camera present, arducam_csi2 refcount ${RC:-?}."
+  [ "$NEED_REBOOT" = 1 ] && exit 2
+  exit 0
+fi
+say "STILL BROKEN. Not one of the two known failures. Next: check the HAT's own"
+say "USB-C 5V input, then 'bash ~/stereo/cam_diag.sh' for a full verdict."
+exit 1

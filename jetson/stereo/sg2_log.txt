@@ -1,0 +1,4 @@
+streaming (single open). goal 20 pairs, up to 300s. Keep the board moving.
+stop requested.
+DONE: kept 0 in 139s (reads=5221 checks=374 failed=0). cells: 
+vision restarted.

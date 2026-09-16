@@ -1,0 +1,26 @@
+# narsil_ar0234_camera pipeline knobs. Hardware facts (device, resolutions,
+# framerate, calibration files) live in the active camera profile
+# (camera_csi.yaml); this file holds the processing configuration.
+# output_mode sbs = split-only raw bayer16 per eye; color comes from the GPU
+# debayer component (gpu_debayer_node.cpp), not from the capture node.
+# consumer_fps caps the detector feed. The elapsed-time throttle quantizes
+# to 30/n of the ~30fps sensor: only 30/15/10 are real. 30 = uncapped;
+# fall back to 15 if GR3D saturates or detection latency drifts (GR3D was
+# ~41% peak at 15fps — 30fps roughly doubles the TensorRT load).
+output_mode: sbs
+output_bit_depth: 16
+consumer_fps: 30.0
+auto_exposure: true
+# 87% FS setpoint (57000) left 0.2 stops of headroom — cloudy sky clipped in
+# 17% of Godech frames (unrecoverable even in raw). 42000 ≈ 64% FS buys
+# 0.64 stops; trigger/cut soften the saturation-cut sawtooth.
+# 30000 with p90 metering: equilibrium must sit BELOW the saturation ceiling
+# or AE limit-cycles between the under branch and the sat cut (visible
+# flicker, measured 2026-07-15). Settles dead-zone-stable at scene mean ~44.
+auto_exposure_target: 42000
+# trigger 0.05, NOT 0.01: at 1% any indoor lamp/window trips the cut and AE
+# limit-cycles (exp crushed to ~54, scene black, recovers, trips again).
+# Still 3x more sensitive than the blown-sky fraction observed at Godech.
+ae_saturation_trigger: 0.05
+ae_saturation_cut_factor: 0.7
+frame_id: ar0234

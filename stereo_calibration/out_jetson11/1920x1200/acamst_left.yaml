@@ -1,0 +1,75 @@
+# Stereo calibration for the jetson11 AR0234 pair, derived from the bench
+# calibration of 2026-08-19 13:44:58 UTC (17 views, RMS 0.24627 px).
+#
+# NOT a straight copy of the bench files. Three corrections were composed:
+#   1. un-crop  1280x720 -> 1920x1200. The bench ran in the sensor's 2560x720
+#      mode, which is a CENTRED CROP at native pixel pitch, measured on the
+#      hardware at offset x=+320 y=+240 (peak correlation 0.98/0.99). fx,fy
+#      therefore carry over unchanged; only the principal point moves.
+#   2. un-invert  the cameras are mounted upside down, so the bench images were
+#      inverted. cx -> (W-1)-cx, cy -> (H-1)-cy; k1,k2,k3 unchanged (even in r);
+#      p1,p2 negated (odd under x,y -> -x,-y).
+#   3. swap  rotating both eyes flips T_x positive, which means the eye the
+#      bench called "left" is the RIGHT eye once upright. Left and right are
+#      therefore exchanged here. Doing 2 without 3 gives a plausible RMS and
+#      mirrored geometry.
+# R and P are recomputed with cv2.stereoRectify (CALIB_ZERO_DISPARITY, alpha=0)
+# from the corrected intrinsics; they cannot be patched in place.
+#
+# Consumers must feed images rotated 180 and left/right swapped, which is what
+# CAMERA.md documents and what smart_grab7.py already does.
+image_width: 1920
+image_height: 1200
+camera_name: ar0234_left_3840x1200
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 1131.8788056175413
+  - 0.0
+  - 932.2186188038394
+  - 0.0
+  - 1132.6597126200825
+  - 588.6303156292134
+  - 0.0
+  - 0.0
+  - 1.0
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data:
+  - 0.06694175316012724
+  - -0.08925714906147478
+  - 0.0010943156929129779
+  - 0.0015297330960883178
+  - -0.07839866820637013
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 0.9998282236740155
+  - 0.005515876080113223
+  - 0.017694582671868825
+  - -0.005655081769302852
+  - 0.9999533797729033
+  - 0.007826770146766616
+  - -0.017650586252169184
+  - -0.007925490004829588
+  - 0.9998128041854325
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+  - 1198.1751669652635
+  - 0.0
+  - 909.0862655639648
+  - 0.0
+  - 0.0
+  - 1198.1751669652635
+  - 596.6708145141602
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+  - 0.0

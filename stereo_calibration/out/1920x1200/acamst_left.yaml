@@ -1,0 +1,62 @@
+# AR0234 stereo calibration — produced by stereo_calibration/calibrate_stereo.py
+# Source images: captures/final (29 pairs, 960x600 2x2-binned)
+# Generated: 2026-08-12 08:51:07 UTC
+# K, D from cv2.stereoCalibrateExtended; R, P from cv2.stereoRectify (CALIB_ZERO_DISPARITY, alpha=0).
+# Checkerboard 9x6 inner corners, 25.6 mm squares. Stereo RMS 0.29667 px.
+# Scaled from the 960x600 calibration: f*2, c*2+0.5 (the binned pixel
+#   centroid sits at full-res 2i+0.5). D and R are resolution-independent.
+image_width: 1920
+image_height: 1200
+camera_name: ar0234_left_3840x1200
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 1137.5312907330015
+  - 0.0
+  - 959.4294205857826
+  - 0.0
+  - 1137.446693020711
+  - 590.8309371783826
+  - 0.0
+  - 0.0
+  - 1.0
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data:
+  - 0.01777188203382855
+  - -0.050799421747355314
+  - -0.0005590081240920327
+  - -0.0004322621633015941
+  - 0.01965646005918743
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 0.9997703955159855
+  - 0.009599078772438749
+  - 0.019157607797703653
+  - -0.009638251602416121
+  - 0.9999516428392424
+  - 0.001953481289623568
+  - -0.01913792976940408
+  - -0.0021376786056147012
+  - 0.9998145677946089
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+  - 1170.0736041830785
+  - 0.0
+  - 926.8195953369141
+  - 0.0
+  - 0.0
+  - 1170.0736041830785
+  - 592.3994750976562
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+  - 0.0

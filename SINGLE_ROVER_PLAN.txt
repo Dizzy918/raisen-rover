@@ -1,0 +1,158 @@
+RUNNING THE ALGORITHM ON ONE REAL ROVER: READINESS CHECK
+2026-08-18, before any hardware run
+
+
+FIRST, THE THING I COULD NOT FIND
+
+There is no single-rover logic on the algorythm branch. Three commits, and the
+mission is two-rover throughout:
+
+  sim.py          run() hardwires Rover(1, *START_A) and Rover(2, *START_B), and
+                  the stage machine is STAGE_1_MARKER -> 1B_SPIN -> 2_WALL_FOLLOW
+                  -> 2B_RENDEZVOUS -> 3_PARTITION_EXPLORE. Three of those five
+                  stages exist only because there are two machines.
+  server.py       _run_mission() imports sim and says, in its own docstring,
+                  "The mission itself, on its own thread. Replace this for real
+                  hardware."
+  no CLI flag     neither sim.py nor server.py takes --rovers or anything like it
+
+So either the single-rover version is not pushed, or it means "run the parts that
+work for one rover". Everything below assumes the second reading. If there is
+another copy somewhere, use it instead of building this.
+
+
+WHAT IS ALREADY HARDWARE-READY, VERIFIED BY READING IT
+
+The README's claim holds up: "when the hardware arrives you delete sim.py ... and
+nothing in mapping.py, explore.py, merge.py or wallfollow.py changes."
+
+  wallfollow.py   ZERO references to World. WallFollower.step(sonars, x, y, yaw,
+                  dt, blocked, cam_fwd) takes {fwd,left,right} in METRES plus a
+                  pose and returns a velocity. Drop-in.
+  explore.py      ZERO references to World. find_frontiers(grid) and
+                  island_mask(grid) need only a grid.
+  mapping.py      OccupancyGrid is clean. Its three World references are all in
+                  coverage scoring, not in the map itself.
+
+And OccupancyGrid already takes BOTH of our sensors:
+
+  integrate(origin_xy, points_xy, max_range=6.0)              stereo depth
+  integrate_sonar(origin_xy, yaw, readings, mount_angles,     the three HC-SR04s
+                  cone_rad=0.262, max_range=4.0)
+
+world.py already defines mount_angles = {fwd 0, left +pi/2, right -pi/2}, which is
+exactly the three channels we have. sonar3 not existing costs nothing.
+
+NOT applicable to one rover, and all of it is in explore.py or merge.py:
+split_targets, partition_geodesic, enclosed_region, filter_frontiers_by_region,
+merge.fuse. Ignore rather than adapt.
+
+
+WHAT HAS TO BE BUILT: A DRIVER, NOT AN ALGORITHM
+
+Per tick, at 10 Hz:
+
+  pose            cuVSLAM, x/y/yaw in the rover's own frame. Already running at
+                  31 Hz, rotation validated to +1.9%, translation to a few percent.
+  stereo points   raisen depth -> CameraToBase -> base_link, which is what
+                  pipeline/run_pipeline.py's GridConsumer already produces.
+  sonar           three channels, cm -> METRES, and -1 -> max_range. Their doc has
+                  the right handling for a timeout: "carve free, mark nothing."
+  motors          WallFollower gives (v, w) in m/s and rad/s. Convert with the
+                  measured calibration below, then apply FORWARD_SIGN = -1.
+
+Then integrate, publish a frame, repeat. The stage logic for one rover is: spin to
+find a wall, follow the perimeter until the trail closes on its start, then drive
+frontiers until none remain. No marker stage, no rendezvous, no partition, no merge.
+
+
+FIVE THINGS THAT WILL BITE, IN ORDER OF HOW MUCH
+
+1. THE DEADBAND IS FINE. THIS ITEM IS WITHDRAWN.
+
+   It read: measured deadband about 0.28 m/s against a simulated 0.035, eight times
+   larger, so a follower built to creep at a 15 cm standoff could not creep at all.
+   That was wrong. The 0.24 command floor it rested on was itself wrong -- almost
+   certainly measured in reverse, before it was known that positive L/R drives this
+   rover backward.
+
+   Measured properly against the Jetson's own rover2_obstacle_control.py, which
+   cruises at command 0.10:
+
+     0.10 -> 0.079 m/s     fit over three points: 1.238 * command - 0.0469
+     0.30 -> 0.320 m/s     deadband (speed = 0) at command 0.038
+     0.45 -> 0.513 m/s     residuals under 0.005 m/s
+
+   So the chassis creeps, the simulation's V_DEADBAND = 0.035 was closer to right
+   than my measurement, and at 0.079 m/s the reaction distance is 8.9 cm against a
+   15 cm standoff. Wall-following is viable, with 6 cm of margin, provided it runs
+   near that speed rather than at 0.30.
+
+2. THE SONAR REFRESHES AT 2.3 Hz AND THE MISSION TICKS AT 10 Hz.
+
+   The firmware fires the four sensors 60 ms apart on purpose so they do not hear
+   each other, plus a 200 ms tail: a full cycle is about 440 ms. So four ticks in
+   five see a stale reading, and at 0.32 m/s the rover covers 14 cm between updates
+   -- comparable to the standoff it is trying to hold. Options: tick the mission
+   at 2-3 Hz, or drive slower, or let the follower know a reading's age.
+
+3. THE ROVER DOES NOT DRIVE STRAIGHT AND NOTHING CORRECTS IT.
+
+   0.4% of distance at command 0.30, 1.0% at 0.45. A metre at speed lands 12 cm
+   off course. The follower closes the loop on sonar so it will absorb some of
+   this, but dead-reckoned segments will not.
+
+4. V_MAX IS WRONG THE OTHER WAY. Simulated 0.45 m/s, measured about 0.58 at full
+   scale (0.320 m/s at command 0.30, 0.513 at 0.45). Anything computing a command
+   from a target speed will undershoot by about 20%.
+
+5. THE STEREO NEAR LIMIT IS BETTER THAN ASSUMED. mapping.py says stereo "cannot
+   see closer than 0.50 m (its disparity search has a fixed maximum)". Ours reaches
+   0.389 m at numDisparities 224. So the sonar/stereo handover can sit at 0.39 m
+   rather than 0.50, and there is 11 cm less blind band than the comment expects.
+
+
+ONE PROBLEM THAT DISAPPEARS ENTIRELY WITH ONE ROVER
+
+The magnetometer's positional offset -- 16 deg after 79 cm of travel, persistent,
+noise unchanged either side -- broke the premise that two rovers share a frame
+through magnetic north. With ONE rover there is no frame to share. Its own vSLAM
+yaw is the frame, and that drifted 0.23 deg over 95 s and 0.00 deg over 72 s
+stationary. So the hardest measurement problem in the two-rover design is simply
+not in scope for this run. Worth knowing before anyone spends effort on it.
+
+
+THE UI WILL CRASH ON A SINGLE-ROVER FRAME
+
+viewer.html reads both rovers unguarded in at least three places:
+
+  trailB.push(f.b)                     line 428
+  drawRover(f.b, "#37d0d6", "B")       line 500
+  f.b[0].toFixed(1)                    line 780   <- throws on a missing f.b
+
+Only f.sbb and f.snb are guarded. So sending a frame without "b" breaks the page.
+Two ways out:
+
+  stub B        send a fixed off-screen pose and empty grid deltas. No viewer
+                changes, but it draws a phantom second rover.
+  guard B       about six small edits so the B panels hide when absent. Cleaner,
+                and it is the version worth having.
+
+Also: the viewer's coverage percentage cannot be computed on hardware. coverage()
+needs a World for ground truth. mapping.mapped_area_m2(grid) needs only the grid
+and is the honest replacement -- area mapped, not fraction of a known truth.
+
+And server.py builds its header from sim.WORLDS[...]() to get grid bounds. On
+hardware there is no world; OccupancyGrid grows itself via _grow_to, so bounds
+have to come from the grid's own extent instead.
+
+
+WHAT I WOULD DO FIRST, GIVEN THE CHOICE
+
+Not the full mission. A ten-minute "does the map look like the room" run: push
+cuVSLAM pose + stereo points + sonar into OccupancyGrid at 2-3 Hz, publish to the
+viewer, and DRIVE IT BY HAND with the existing drive_test moves. No wall-follower,
+no frontiers. That tests the whole sensing and display chain -- which is what
+"see in real time if the mapping works" actually asks -- and it removes every
+autonomy failure mode from the first run. If the map is recognisable, the
+follower is worth wiring up. If it is not, no amount of autonomy helps.

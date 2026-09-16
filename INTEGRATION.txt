@@ -1,0 +1,270 @@
+COMBINING THE BRANCHES: HOW TO MOVE THE CAR AND READ THE SONARS
+2026-08-18
+
+
+THE REPO
+
+  https://github.com/milar111/RaisenInternship
+
+  main                    LICENSE only. development is the same.
+  feature/esp-sonar       sonar firmware + the two motion scripts. 5 files.
+  algorythm               the whole two-rover mission, simulated. 16 files.
+  udpSocket               C++ UDP transport, 54 files, PROTOCOL.md.
+  feature/jetson-stereo   this tree: camera, calibration, cuVSLAM, IMU fusion,
+                          occupancy grid, drive tests. 160 files.
+
+Note: there are currently TWO clones on the Mac, one at ~/Programming/
+RaisenInternship and a second nested INSIDE this mirror at Raisen/
+RaisenInternship (main, LICENSE only). The nested one should go -- a git repo
+inside the mirror directory is going to get confusing.
+
+
+1. HOW TO MOVE THE CAR
+
+  GET http://<rover>/js?json={"T":1,"L":<l>,"R":<r>}     l, r in -0.5 .. +0.5
+
+Three things about this that are not optional:
+
+  THE HEARTBEAT IS REAL. The ESP32 auto-stops if no new command arrives within
+  about 3 s, so continuous motion needs commands resent at roughly 2 Hz or
+  faster. drive_test.py sends at 10 Hz. This is a safety feature, not a nuisance:
+  it is the only thing that stops the rover if the controller dies.
+
+  ONE CONTROLLER AT A TIME. Two 10 Hz heartbeat threads fighting over one base is
+  a physical hazard. preflight in rover/drive_test.py checks for it by commanding
+  zero and watching whether the gyro shows motion that VARIES.
+
+  THE DEADBAND IS LARGE AND BATTERY-DEPENDENT. Measured on rover-01: nothing
+  moves below about 0.24, and a pivot needs about 0.26. That is 48% of the 0.5
+  full-scale command. See the units section below, because this is where the
+  algorithm branch and the hardware disagree most.
+
+SIGN CONVENTION -- UNRESOLVED, AND IT MATTERS.
+
+  PROJECT_CONTEXT.md      "positive = forward"
+  rover2_obstacle_control.py sends {"T":1,"L":-speed,"R":-speed} to go FORWARD
+  rover/drive_test.py     sends positive to go forward
+
+The rover2 script negates. It also hardcodes 172.10.10.184, which is the address
+rover-01 happens to hold today -- but that is a DHCP address assigned this
+morning, and the file is named rover2, so it probably refers to the OTHER rover
+and the collision is a coincidence. Do not assume it is the same machine.
+
+What IS established: on rover-01, TURNING has the correct sign. A commanded +45
+deg pivot produced +45.84 deg measured by vSLAM and +44.3 by the corrected gyro,
+all three the same direction. FORWARD has never been driven on rover-01 at all,
+so its sign is untested. Check it with a 0.5 s nudge and a hand on the rover
+before any timed straight run, because the front sonar cannot protect a reverse.
+
+
+2. HOW TO READ THE SONARS
+
+  GET http://172.10.10.192/sonar  ->  {"sonar1".."sonar4"} in CENTIMETRES
+                                      -1 means no echo within the 30 ms timeout
+
+Note the endpoint is /sonar, NOT the rover's /js?json= interface. Probing the
+sonar box with the rover's protocol returns an HTTP error, which reads like
+"wrong address" and is really "right box, wrong path".
+
+The firmware is feature/esp-sonar's rover_control.py -- which is Arduino C++
+despite the .py extension. It triggers the four sensors sequentially with 60 ms
+between them, deliberately, so they do not hear each other's pulses. Full cycle
+is therefore about 440 ms, so /sonar cannot be usefully polled faster than about
+2 Hz; asking more often just returns the same numbers.
+
+  distance_cm = pulse_us * 0.0343 / 2
+
+MEASURED 2026-08-18, 40 samples at 4 Hz, rover stationary:
+
+  sensor      n      min   median      max     std    no-echo
+  sonar1     40      0.1     14.3     14.9     2.2      0
+  sonar2     40     59.8     65.3     75.8     2.7      0
+  sonar3     40        -        -        -       -     40
+  sonar4     40     84.0     92.7    111.6     5.6      0
+
+  sonar3 DOES NOT EXIST, and that is settled rather than broken. 40 of 40
+  no-echo, and there will not be a fourth sonar. Three -- front, left, right --
+  is the design, and it happens to match the {fwd, left, right} contract
+  algorythm/rover.py already expects, so nothing downstream changes.
+
+  THE COST IS THAT THERE IS NO SPARE. Lose one channel and the wall-follower
+  loses a side, or forward motion loses its guard, and nothing in the current
+  code degrades gracefully when a channel stops answering -- it just reads 999
+  and drives on. Worth a health check somewhere before that matters.
+
+  Incidentally PROJECT_CONTEXT.md lists sonar3 on Trig 22 / Echo 35 where the
+  firmware uses Trig 27 / Echo 14. Only useful now as evidence that the
+  documented pin map cannot be trusted for the channels that DO work either.
+
+WHICH CHANNEL IS THE FRONT -- UNRESOLVED, AND IT ALSO MATTERS.
+
+  PROJECT_CONTEXT.md         "1 (front) | GPIO 5 | GPIO 18"
+  rover2_obstacle_control.py reads data.get("sonar4") as the front
+  rover/drive_test.py        gates forward motion on sonar1
+
+Today sonar1 read 14.3 cm and sonar4 read 92.7 cm. If sonar4 is the front, then
+the way ahead was clear and drive_test refused to move because a SIDE sensor saw
+something. That is exactly what happened this morning, and it is why the
+straight-line run has still not been done.
+
+Resolve it empirically, no tape needed: put a hand 20 cm from the front bumper
+and see which channel drops. Thirty seconds of work, and it is a prerequisite for
+every forward move.
+
+
+3. THE UNITS SEAM -- WHERE THE TWO HALVES DO NOT MEET
+
+The algorithm branch commands SI units. algorythm/rover.py:
+
+    def drive(self, v, w, dt, world):   # v in m/s, w in rad/s
+        self.wheel_l = clip((v - w * TRACK / 2) / V_MAX, -1, 1)
+        self.wheel_r = clip((v + w * TRACK / 2) / V_MAX, -1, 1)
+
+The hardware takes a dimensionless -0.5 .. +0.5 PWM fraction. So somebody has to
+supply the conversion, and it rests on four constants that the simulation
+currently ASSUMES:
+
+  TRACK        0.165 m      plausible, measurable with a ruler
+  V_MAX        0.45 m/s     NEVER MEASURED on hardware
+  W_MAX        2.0 rad/s    = 115 deg/s. Consistent with what was seen: a pivot
+                            at command 0.28 peaked near 65 deg/s, which scales to
+                            roughly 90-115 deg/s at full command. This one looks
+                            about right.
+  V_DEADBAND   0.035 m/s    CLOSE TO RIGHT. An earlier note here called it wrong
+                            by 6x, from a 0.24 command floor that was itself
+                            measured in reverse. Three points now fit
+                            speed = 1.238*command - 0.0469, putting the deadband at
+                            command 0.038. The chassis creeps; see rover/README.txt
+  SKID_GAIN    0.78         realised yaw rate over the differential prediction
+
+THERE IS NO DEADBAND DISAGREEMENT. This section previously claimed one, from a
+0.24 command floor that was itself measured in reverse -- before it was known that
+positive L/R drives this rover BACKWARD. Corrected by running the Jetson's own
+rover2_obstacle_control.py at CRUISE_SPEED = 0.10 and timing its sonar readout:
+
+  command 0.10 -> 0.079 m/s        fit over three points, residuals under 0.005:
+  command 0.30 -> 0.320 m/s          speed = 1.238 * command - 0.0469 m/s
+  command 0.45 -> 0.513 m/s          deadband (speed = 0) at command 0.038
+
+So the chassis creeps, and the simulation's V_DEADBAND was closer to right than the
+measurement that contradicted it. The consequences that were listed here -- that
+rover2_obstacle_control.py could not move the rover, and that the wall-follower
+needed pulsed motion or a rethink -- are both withdrawn. That script drives the
+rover perfectly well, and at 0.079 m/s the reaction distance is 8.9 cm against the
+follower's 15 cm standoff.
+
+  The deadband MOVES with battery voltage. Anything calibrated at one charge
+  state is wrong at another.
+
+WHAT CLOSES THIS: a straight-line run at a fixed command with vSLAM recording
+displacement. That gives metres per second per command directly, which is both
+V_MAX and the deadband in one measurement, and it is better than the stopwatch-
+and-tape method PROJECT_CONTEXT.md proposes because vSLAM samples at 31 Hz. It is
+the single most valuable measurement still outstanding, and it is blocked only on
+knowing which sonar faces forward and having 1.5 m of clear floor.
+
+
+4. FOUR THINGS THIS BRANCH CHANGES ABOUT THE ARCHITECTURE
+
+PROJECT_CONTEXT.md was written before the Jetson work existed, and four of its
+premises have since been settled by measurement.
+
+  "the Jetson boards are not expected to comfortably run heavy stereo depth /
+  vSLAM / ArUco processing in real time, so that work is offloaded to a laptop"
+
+  Isaac ROS cuVSLAM runs on jetson9 at 31.7 fps against the live stereo pair,
+  with the publisher costing 21 ms per frame and 0 tracking resets over a 100 s
+  run. The laptop-offload premise does not hold for vSLAM. It may still hold for
+  two-rover map fusion, which is a different question.
+
+  "vSLAM approach not yet chosen (ORB-SLAM3 vs Isaac ROS cuVSLAM vs custom)"
+
+  Chosen and working: Isaac ROS cuVSLAM 3.2.6 under ROS 2 Humble. Rotation
+  validated to +1.9% on a 45 deg pivot against an independent gyro.
+
+  "IMU magnetometer/compass heading is used as an absolute heading reference for
+  both rovers independently ... only the translational offset needs to be
+  established"
+
+  THIS IS THE MOST IMPORTANT CORRECTION. The ESP32's fused yaw is
+  magnetometer-corrected and it is SUPPRESSED WHILE THE MOTORS RUN -- the motors
+  sit centimetres from the magnetometer. Measured three times: -64.5% on a 90 deg
+  pivot, 20% of actual on a 45 deg pivot, and stuck inside an 82 deg band across
+  a watched ~800 deg turn. At REST it is excellent (0.18 deg/min drift), so it is
+  still the right absolute reference between manoeuvres -- but a design that
+  reads heading while turning gets a number that has stopped moving. Read it
+  stopped, or fuse it with the gyro as imu/fuse_heading.py does.
+
+  "no wheel encoders means all distance/speed data is approximate"
+
+  Still true, but there is now a second odometry source. cuVSLAM's stationary
+  rotational drift is 0.00 deg over 72 s, which is better than the gyro's 5.3 deg
+  over the same window. Translation scale is still unmeasured.
+
+AND ONE HARDWARE TRAP THAT AFFECTS ANY GYRO USE
+
+The raw gyro z bias is not a constant. It measured +0.37 deg/s on 2026-08-17 and
++6.07 deg/s on 2026-08-18, same rover, same firmware, steady within each session.
+At 6.07 deg/s a stationary rover integrates +61 deg in ten seconds. Any
+dead-reckoning that integrates gz must measure the bias at rest every session.
+See imu/README.txt.
+
+
+5. THE WIRE CONTRACT, IF IT IS USED AS WRITTEN
+
+algorythm/protocol.py already defines a packed little-endian format, and
+udpSocket implements a C++ transport with its own PROTOCOL.md. The rover->server
+payload is:
+
+    robot_id, flags, n_features, t_capture_us, x, y, z, yaw,
+    then n_features x (32-byte ORB descriptor, fx, fy, fz)
+
+Worth noticing before wiring cuVSLAM into it: this contract expects the Jetson to
+ship ORB DESCRIPTORS so the server can do its own loop closure. cuVSLAM gives a
+pose and keeps its landmarks internal. So either the descriptors get produced
+separately alongside cuVSLAM, or the contract loses its feature list and the
+server's loop closure has to come from somewhere else -- the ArUco rendezvous
+that stages 1 and 3 already rely on, most likely. That is a design decision, not
+a coding detail, and it is better made deliberately than discovered.
+
+Also: protocol.py's ClockSync exists because each rover free-runs its own
+monotonic clock. Two clock domains already bit this project once on the camera
+side, where cuVSLAM warns when frame deltas exceed 120 ms. Keep them separate in
+your head: rover clock, server clock, ROS clock.
+
+
+6. WHAT TO DO FIRST, IN ORDER
+
+  1. DONE. sonar4 is the front, sonar2 left, sonar1 right. drive_test.py had been
+     gating forward motion on sonar1, the RIGHT sensor.
+  2. DONE. Positive L/R drives this rover BACKWARD. FORWARD_SIGN = -1.0.
+  3. CLOSED, as a decision rather than a fix: there will be no sonar3. The fleet is
+     three -- front, left, right -- which matches the {fwd, left, right} contract
+     algorythm/rover.py already expects, so nothing downstream changes. The cost is
+     that there is no spare, and no code path currently degrades gracefully when a
+     channel stops answering.
+  4. DONE, and it answered all three questions at once:
+
+       vSLAM translation scale   79.0 cm against the sonar's 78.0, +1.3%
+       speed at command 0.30     0.354 m/s, rms residual 4.1 mm over 1.81 s
+       full scale extrapolated   about 0.59 m/s, vs the assumed V_MAX 0.45
+       deadband                  SUPERSEDED. Read as 0.24 of full scale here, and
+                                 later measured at command 0.038 once a low-speed
+                                 point was taken. The 0.24 was measured in reverse.
+
+     So the constants table above now reads: V_MAX is about 0.57 and the simulation
+     is 21% slow; W_MAX at 2.0 rad/s stands; V_DEADBAND is about right.
+     A tape measure from a marked start would tighten the scale figure, since the
+     sonar reference is itself only good to a centimetre or two.
+
+  5. AND ONE PREMISE OF THE MAPPING DESIGN DID NOT SURVIVE THE RUN. Driving 79 cm
+     shifted the magnetometer's absolute heading by 16 deg and it STAYED shifted,
+     with its noise unchanged either side, while the rover's true heading moved
+     about a degree. The magnetic frame is not shared between two places indoors,
+     so "both rovers reference magnetic north, therefore only translation needs
+     ArUco calibration" no longer holds. The ArUco rendezvous has to correct
+     rotation too. See imu/README.txt.
+
+  6. Now it makes sense to point algorythm/server.py at real hardware, with
+     V_MAX ~0.59, V_DEADBAND ~0.28 m/s, and no reliance on magnetic heading for
+     inter-rover frame alignment.

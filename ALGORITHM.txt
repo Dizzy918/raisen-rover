@@ -1,0 +1,269 @@
+TWO-ROVER ROOM MAPPING - ALGORITHM
+
+Lines marked FIX are corrections to problems in the original draft.
+Lines marked SUGGESTION are optional improvements.
+Open decisions are collected at the end.
+
+
+PHASE 0 - START POINT
+
+Both rovers are placed side by side against the same wall.
+
+Each rover carries a tag (ArUco / AprilTag). Each reads the other's tag, which
+gives the distance between them and their relative orientation in one step. The
+start point is the midpoint between them, and becomes the origin of the shared
+map.
+
+Tags beat measuring by hand: distance and angle together, and the scale is
+trustworthy because the stereo camera is calibrated (baseline known to 148.9 mm,
+0.5 percent).
+
+FIX - the rovers cannot read each other's tags while facing their travel
+directions. They drive off in opposite directions, so they face away from each
+other. The order must be:
+    1. place them facing each other
+    2. read tags, fix the start point
+    3. each rotates to its travel heading
+    4. then start driving
+  Or mount a tag on more than one side of each rover so it can be read from any
+  angle. Pick one before building this.
+
+
+PHASE 1 - PERIMETER, DRIVING IN OPPOSITE DIRECTIONS
+
+Each rover follows the wall at 30 cm, one clockwise and one counter-clockwise.
+The side sonar it follows decides its direction:
+    follows the wall on its RIGHT -> travels counter-clockwise
+    follows the wall on its LEFT  -> travels clockwise
+
+Control loop: keep the side sonar at 30 cm, steer in proportion to the error.
+Too close, steer away. Too far, steer toward.
+
+CORNERS
+
+Inner corner (concave, the room turning in on itself):
+    front sonar drops to 30 cm, the way ahead is blocked
+    -> turn AWAY from the followed wall
+       (following the right wall means turning left)
+
+Outer corner (convex, the wall ending and turning away):
+    the side sonar grows past 30 cm, the wall has ended
+    -> turn TOWARD the followed wall and drive around it
+
+FIX - an outer corner and a doorway are identical to the sonar. Both make the
+side reading jump above 30 cm. Treated as a corner, the rover turns into the
+doorway and drives out of the room.
+  After the reading jumps, carry straight on for a set distance, 50 to 80 cm. If
+  the wall comes back, it was a gap or a doorway, so continue. If it does not, it
+  was a real outer corner, so turn.
+
+FIX - reacting at 30 cm from the front is too late at speed, since 30 cm at full
+speed is a collision. Either use a larger front threshold than the side one, or
+slow down as the front reading drops.
+
+NOTE - "perimeter" means the drivable outline, not the walls. A desk against a
+wall becomes part of the perimeter and the rover drives around it. That is
+expected, but the enclosed area is then smaller than the room's true floor area.
+
+SUGGESTION - record the driven path as a list of points. It is the most reliable
+data in the whole run, because it was driven at a known 30 cm from the wall, and
+Phase 6 uses it to check the finished map.
+
+
+PHASE 2 - END POINT
+
+The rovers meet on the far side. Each reads the other's tag again, and that
+meeting is the end point.
+
+This works naturally, unlike at the start: they approach head-on, so they are
+already facing each other.
+
+The meeting gives two things:
+  - the end point, closing the perimeter into a loop
+  - a drift measurement. Estimates have drifted on the way round, so the gap
+    between where each rover thinks it is and where the tags say it is is exactly
+    the accumulated error. Spread that correction back along the path each rover
+    drove, rather than jumping it all at the meeting point.
+
+
+PHASE 3 - SPLIT THE ROOM IN TWO
+
+*** THIS PHASE IS REWRITTEN. The original plan was to cut from the start point
+to the end point. That does not give equal halves. ***
+
+WHY THE START-TO-END LINE FAILS
+
+Two separate problems:
+
+1. The rovers do not drive equal halves of the perimeter. They meet when their
+   COMBINED distance equals the total perimeter, not when each has done half. If
+   one side has more corners, or one rover runs slightly slower, the split can
+   easily be 70/30 rather than 50/50.
+
+2. Even with a perfectly equal perimeter split, the interior areas can be very
+   unequal. Area does not follow boundary length. A long thin alcove adds a lot
+   of perimeter and almost no area, and a wide open span adds a lot of area with
+   very little perimeter. In an L-shaped room the start-to-end line can be badly
+   lopsided even when both rovers drove exactly the same distance.
+
+AND THE THING TO BALANCE IS NOT TOTAL AREA
+
+By the time the rovers split, the perimeter strip is already mapped. What is left
+is the unexplored middle. So the split should balance the UNKNOWN cells, which is
+the actual remaining work, not the total floor area.
+
+THE FIX - BALANCE BY UNKNOWN AREA
+
+1. Close the perimeter into a polygon from the two driven paths.
+
+2. Mark every grid cell inside the polygon. Cells already mapped during the
+   perimeter drive are done. The rest are unknown, and they are the work to be
+   shared.
+
+3. Find the polygon's longest axis, and make the dividing line PERPENDICULAR to
+   it. Cutting across the long direction gives two compact halves. Cutting along
+   it gives two long thin slivers, which are slower to explore and full of
+   awkward turns.
+
+4. Slide that line along the long axis until the count of unknown cells on each
+   side is equal. Do not use area, and do not use perimeter length. Count cells,
+   which works for any room shape without any geometry maths.
+
+5. Assign each half to whichever rover drove more of the boundary next to it.
+   That keeps each rover working near ground it already knows and avoids sending
+   both of them across the room.
+
+6. Check both halves are fully reachable from their own side. Flood-fill each
+   half from its rover's entry point and confirm every unknown cell in it can be
+   reached without crossing the dividing line.
+
+FALLBACK FOR AWKWARD ROOMS
+
+Step 6 fails when a straight line cuts off a pocket, which is common in
+L-shaped and U-shaped rooms. In that case do not use a straight line at all:
+
+  - flood outward from both rovers at the same time, one step at a time, through
+    free space only, so walls are respected
+  - each unknown cell belongs to whichever flood reaches it first
+  - both rovers are at the same place at the meeting point, so give one flood a
+    head start along its own driven arc, otherwise the split is meaningless
+  - if the two counts end up uneven, adjust the head start and flood again
+
+This gives two regions that are always fully reachable, always respect walls, and
+can be balanced by adjusting one number. It costs a little more code than a
+straight line, but it cannot produce an unreachable pocket.
+
+SUGGESTION - build the straight-line version first and keep the flood version for
+when a real room breaks it. Log the two unknown-cell counts every run, so it is
+obvious when the split is going wrong.
+
+CHECKS
+  - the two unknown-cell counts are within a few percent of each other
+  - every unknown cell is reachable by its assigned rover
+  - neither half is a thin sliver: check the ratio of its width to its length
+
+
+PHASE 4 - FRONTIER EXPLORATION INSIDE EACH HALF
+
+Each rover fills in its own half:
+  - a frontier is the edge between mapped-clear space and unknown space
+  - group nearby frontier cells together
+  - pick one by cost against benefit, near and large beats far and small
+  - drive to it, map what is revealed, repeat
+  - stop when no reachable frontier is left inside the assigned half
+
+Neither rover crosses the dividing line.
+
+DECISION - what does the rover that finishes first do?
+    a) wait where it is
+    b) return to the start point
+    c) cross over and help finish the other half
+  Option (c) is the most useful and the most work: the dividing line has to be
+  dropped safely and both rovers must avoid re-covering the same ground. Option
+  (a) is simplest and fine for a first working version.
+
+SUGGESTION - balancing by unknown cells in Phase 3 should already make the two
+rovers finish at roughly the same time, which makes this decision much less
+important than it would otherwise be.
+
+
+PHASE 5 - SEND FINGERPRINTS TO THE LAPTOP
+
+As soon as a rover finishes its half, it sends its fingerprint to the laptop.
+
+*** NEEDS CLARIFYING - see the question at the bottom. ***
+
+
+PHASE 6 - MAP MERGING
+
+The laptop has both halves and joins them into one map.
+
+1. Coarse alignment, from the tags.
+   The start point and the end point are both measured from tag readings, so the
+   two halves already sit in the same coordinate system. This is the main
+   alignment and it needs no image matching at all.
+
+2. Fine alignment, where the halves overlap.
+   Both rovers drove the perimeter, so both saw the area near the start point and
+   near the end point. Drift during Phase 4 can leave those overlaps slightly
+   off. Slide and rotate one half by a small amount until the overlapping walls
+   line up best.
+   Keep the search small, a few tens of cm and a few degrees. If the best fit is
+   larger than that, call it a failure rather than accepting it - a large
+   correction means something else went wrong, and accepting it hides the real
+   fault.
+
+3. Fuse the cell scores.
+   Both halves are grids of scores, positive for wall and negative for clear. Add
+   them cell by cell. Where they overlap and agree the score strengthens. Where
+   they disagree they partly cancel, which is correct: neither rover overrules
+   the other.
+
+4. Check against the driven path.
+   The perimeter is the most reliable data in the run, because it was driven at a
+   known 30 cm from the wall. The merged outline should match the driven path,
+   offset by 30 cm. If it does not, the merge is wrong, and this is the cheapest
+   way to find that out.
+
+5. Output one map.
+   One grid, one origin, one cell size, with the perimeter and both halves in it.
+   Save it with the origin and cell size recorded, so it can be reopened later.
+
+CHECKS FOR THE WHOLE MERGE
+  - the outline closes with no step or kink where the rovers met
+  - a corner seen by both rovers appears once, not as two offset copies
+  - the outline length matches the room measured with a tape
+  - the mapped area is close to the room's real area
+
+
+WHAT IS THE FINGERPRINT?
+
+Phase 5 says a fingerprint goes to the laptop and is used to map the two halves,
+but not what it contains. Guessing wrong means building the wrong thing.
+
+Most likely meanings:
+
+  a) A visual place signature. A compact description of what a place looks like,
+     so the laptop can tell both rovers saw the same physical spot. This is the
+     standard tool for joining two robots' maps.
+
+  b) The perimeter outline itself, used as a shape signature to match the halves.
+
+  c) The local map, compressed. In which case "fingerprint" just means "the map
+     data" and the merge is Phase 6 above, with nothing extra to build.
+
+WORTH KNOWING - with the start point AND the end point both measured from tags,
+the halves are already aligned. A fingerprint is not needed to align them. It
+would be a cross-check, or a way to fix drift built up during Phase 4.
+If that is the intent, (a) is the right reading and Phase 5 is real work. If it
+is (c), Phase 5 is just "send the map".
+
+
+OPEN DECISIONS
+
+1. Tags at the start: rotate after reading, or mount tags on several sides?
+2. Outer corner versus doorway: how far to drive straight before committing?
+3. Front sonar threshold, and does the rover slow as it approaches?
+4. Phase 3: start with the straight-line split, or go straight to the flood split?
+5. What does the rover that finishes its half first do?
+6. What exactly is the fingerprint?

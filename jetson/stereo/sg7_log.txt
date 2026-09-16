@@ -1,0 +1,30 @@
+streaming 3840x1200 -> 960x600/eye, exp=8000. goal 22 pairs, 480s.
+Fill the frame corners, tilt 20-40 deg, vary near/far. Hold ~1s per pose.
+KEPT  1/22 cell=TL fill=16% (6s) cells 1/9: TL
+KEPT  2/22 cell=TL fill=16% (9s) cells 1/9: TL
+KEPT  3/22 cell=BL fill=16% (18s) cells 2/9: BL TL
+KEPT  4/22 cell=BL fill=16% (19s) cells 2/9: BL TL
+KEPT  5/22 cell=MC fill=12% (20s) cells 3/9: BL MC TL
+KEPT  6/22 cell=TR fill=21% (31s) cells 4/9: BL MC TL TR
+KEPT  7/22 cell=MR fill=20% (32s) cells 5/9: BL MC MR TL TR
+KEPT  8/22 cell=TR fill=31% (50s) cells 5/9: BL MC MR TL TR
+KEPT  9/22 cell=MR fill=44% (52s) cells 5/9: BL MC MR TL TR
+KEPT 10/22 cell=TR fill=49% (54s) cells 5/9: BL MC MR TL TR
+KEPT 11/22 cell=TR fill=38% (69s) cells 5/9: BL MC MR TL TR
+KEPT 12/22 cell=BC fill=13% (102s) cells 6/9: BC BL MC MR TL TR
+KEPT 13/22 cell=BC fill=12% (105s) cells 6/9: BC BL MC MR TL TR
+KEPT 14/22 cell=ML fill=15% (115s) cells 7/9: BC BL MC ML MR TL TR
+KEPT 15/22 cell=MR fill=18% (123s) cells 7/9: BC BL MC ML MR TL TR
+KEPT 16/22 cell=MR fill=15% (144s) cells 7/9: BC BL MC ML MR TL TR
+KEPT 17/22 cell=BR fill=20% (145s) cells 8/9: BC BL BR MC ML MR TL TR
+KEPT 18/22 cell=MR fill=24% (146s) cells 8/9: BC BL BR MC ML MR TL TR
+KEPT 19/22 cell=MR fill=20% (239s) cells 8/9: BC BL BR MC ML MR TL TR
+KEPT 20/22 cell=MC fill=17% (242s) cells 8/9: BC BL BR MC ML MR TL TR
+KEPT 21/22 cell=ML fill=18% (245s) cells 8/9: BC BL BR MC ML MR TL TR
+KEPT 22/22 cell=MC fill=21% (247s) cells 8/9: BC BL BR MC ML MR TL TR
+
+DONE: 22/22 in 247s | blur-rejected=0 one-eye-only=11
+cells 8/9 hit: BC BL BR MC ML MR TL TR
+cells MISSED: TC
+fill 12%-49%
+vision restarted.
